@@ -374,7 +374,7 @@ function renderHistory(){
   chart += '</div></div>';
 
   const weeks8 = lastMondays(8);
-  const hasAny = Object.keys(data).some(k=>k!=="_labels"&&k!=="_updatedAt");
+  const hasAny = Object.keys(data).some(k=>!k.startsWith("_"));
   let heat = '<div class="hcard"><h3>🗓️ Heatmap (giorni completati / 7)</h3>';
   if(!hasAny){
     heat += '<div class="empty">Ancora nessun dato.<br>Inizia a segnare le attività nella vista “Settimana”.</div>';
@@ -453,8 +453,8 @@ async function onSaveSync(){
   msg("syncMsg","Verifica in corso…","info"); setSync("saving");
   const remote = await pullRemote();
   if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
-  const localHas = Object.keys(data).some(k=>k!=="_labels"&&k!=="_updatedAt");
-  const remoteHas = remote && Object.keys(remote).some(k=>k!=="_labels"&&k!=="_updatedAt");
+  const localHas = Object.keys(data).some(k=>!k.startsWith("_"));
+  const remoteHas = remote && Object.keys(remote).some(k=>!k.startsWith("_"));
   if(remoteHas && (remote._updatedAt||0) >= (data._updatedAt||0)){
     data = remote; if(!data._labels)data._labels={}; saveLocal(); render();
     msg("syncMsg","✅ Collegato! Ho caricato i dati già presenti nel cloud.","ok");
