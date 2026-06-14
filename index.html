@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CDF Tracker">
+<meta name="theme-color" content="#0f172a">
+<title>CDF Tracker</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --line:#e2e8f0; --today:#fef9c3; --todayLine:#facc15;
+    --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:12px 12px 60px;}
+
+  header{position:sticky;top:0;z-index:20;background:rgba(241,245,249,.92);
+    backdrop-filter:saturate(180%) blur(8px);padding:8px 12px 6px;margin:-12px -12px 8px;
+    border-bottom:1px solid var(--line);}
+  .title{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .title h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.01em;}
+  .title-right{display:flex;align-items:center;gap:8px;}
+  .overall{font-size:13px;color:var(--muted);font-weight:600;}
+  .overall b{color:var(--ink);font-size:15px;}
+  .sync{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
+    color:var(--muted);background:var(--card);border:1px solid var(--line);
+    padding:5px 9px;border-radius:99px;cursor:pointer;}
+  .dot{width:8px;height:8px;border-radius:99px;background:#94a3b8;flex:0 0 auto;}
+  .dot.ok{background:#22c55e;} .dot.saving{background:#f59e0b;animation:pulse 1s infinite;}
+  .dot.error{background:#ef4444;} .dot.off{background:#94a3b8;}
+  @keyframes pulse{50%{opacity:.35;}}
+
+  .nav{display:flex;align-items:center;gap:8px;margin-top:8px;}
+  .nav .arrow{width:40px;height:40px;border-radius:12px;border:1px solid var(--line);
+    background:var(--card);font-size:20px;font-weight:700;color:var(--ink);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;}
+  .nav .arrow:active{background:var(--line);}
+  .weeklabel{flex:1;text-align:center;font-weight:700;font-size:15px;line-height:1.15;}
+  .weeklabel small{display:block;font-weight:500;color:var(--muted);font-size:11px;margin-top:1px;}
+  .today-btn{height:40px;padding:0 14px;border-radius:12px;border:0;background:var(--ink);
+    color:#fff;font-weight:700;font-size:13px;cursor:pointer;flex:0 0 auto;}
+  .today-btn:active{opacity:.85;}
+  .hidden{display:none!important;}
+
+  .tabs{display:flex;gap:6px;margin-top:8px;}
+  .tab{flex:1;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
+    font-weight:700;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
+  .tab.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tab.icon{flex:0 0 46px;}
+
+  .section{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    margin-bottom:12px;overflow:hidden;border:1px solid var(--line);}
+  .sec-head{display:flex;align-items:center;gap:10px;padding:12px 14px 10px;}
+  .sec-emoji{font-size:20px;line-height:1;}
+  .sec-name{font-weight:700;font-size:15px;flex:1;}
+  .sec-pct{font-weight:800;font-size:14px;}
+  .bar{height:7px;border-radius:99px;background:var(--line);margin:0 14px 10px;overflow:hidden;}
+  .bar > i{display:block;height:100%;border-radius:99px;transition:width .25s ease;}
+
+  table{width:100%;border-collapse:collapse;}
+  thead th{font-size:11px;color:var(--muted);font-weight:700;padding:4px 0 6px;text-align:center;}
+  thead th.lbl{text-align:left;padding-left:14px;}
+  thead th .dnum{display:block;font-size:10px;font-weight:600;color:var(--muted);margin-top:1px;}
+  thead th.todaycol, td.todaycol{background:var(--today);}
+  thead th.todaycol{border-top:2px solid var(--todayLine);}
+  tbody td{padding:3px 0;text-align:center;border-top:1px solid var(--line);}
+  tbody td.lbl{text-align:left;padding-left:14px;font-size:13px;font-weight:500;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:1px;width:38%;}
+  tbody td.rowpct{font-size:11px;font-weight:700;color:var(--muted);padding-right:10px;width:34px;}
+
+  .cell{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--line);
+    background:#fff;display:inline-flex;align-items:center;justify-content:center;
+    cursor:pointer;color:transparent;font-size:15px;font-weight:800;margin:0 auto;
+    transition:transform .05s ease;}
+  .cell:active{transform:scale(.88);}
+  .cell.on{color:#fff;border-color:var(--c);background:var(--c);}
+
+  .daycard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;}
+  .daycard h3{margin:0 0 10px;font-size:14px;}
+  .daygrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center;}
+  .daygrid .d{font-size:11px;}
+  .daygrid .d .lab{color:var(--muted);font-weight:700;margin-bottom:4px;}
+  .daygrid .d .ring{font-weight:800;font-size:13px;}
+  .daygrid .d.is-today .lab{color:#a16207;}
+  .daygrid .d.is-today{background:var(--today);border-radius:10px;padding:4px 0;}
+
+  .hcard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:14px;margin-bottom:12px;}
+  .hcard h3{margin:0 0 12px;font-size:15px;}
+  .hcard p.sub{margin:-6px 0 12px;font-size:12px;color:var(--muted);line-height:1.45;}
+  .chart{display:flex;align-items:flex-end;gap:10px;height:140px;padding-top:6px;}
+  .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;}
+  .chart .colbar{width:100%;max-width:42px;border-radius:8px 8px 0 0;background:#3b82f6;
+    min-height:3px;display:flex;align-items:flex-start;justify-content:center;}
+  .chart .colpct{font-size:10px;font-weight:800;color:#fff;padding-top:3px;}
+  .chart .colpct.dark{color:var(--ink);}
+  .chart .collabel{font-size:10px;color:var(--muted);font-weight:600;text-align:center;line-height:1.1;}
+
+  .hm-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .hm{border-collapse:collapse;width:100%;}
+  .hm th{font-size:10px;color:var(--muted);font-weight:700;padding:3px 2px;white-space:nowrap;}
+  .hm th.lbl,.hm td.lbl{text-align:left;padding-right:8px;font-size:12px;font-weight:500;
+    color:var(--ink);white-space:nowrap;position:sticky;left:0;background:var(--card);}
+  .hm td{padding:2px;}
+  .hm .sub td{font-weight:800;font-size:11px;color:var(--ink);padding-top:8px;}
+  .hm .swatch{width:26px;height:22px;border-radius:5px;background:var(--line);margin:0 auto;
+    display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:18px 0;}
+
+  /* Settings */
+  .field{margin-bottom:10px;}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;}
+  .field input[type=text]{width:100%;height:42px;border:1px solid var(--line);border-radius:10px;
+    padding:0 12px;font-size:15px;background:#fff;color:var(--ink);}
+  .btn{height:42px;padding:0 16px;border-radius:10px;border:0;font-weight:700;font-size:14px;cursor:pointer;}
+  .btn.primary{background:var(--ink);color:#fff;}
+  .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);}
+  .btn:active{opacity:.85;}
+  .row-btns{display:flex;gap:8px;flex-wrap:wrap;}
+  .status-msg{font-size:13px;font-weight:600;margin-top:10px;padding:10px 12px;border-radius:10px;}
+  .status-msg.ok{background:#dcfce7;color:#166534;}
+  .status-msg.err{background:#fee2e2;color:#991b1b;}
+  .status-msg.info{background:#e0f2fe;color:#075985;}
+  .rename-list{display:flex;flex-direction:column;gap:6px;}
+  .rename-row{display:flex;align-items:center;gap:8px;}
+  .rename-row .ic{font-size:15px;width:20px;text-align:center;flex:0 0 auto;}
+  .rename-row input{flex:1;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:#fff;color:var(--ink);}
+  .rename-sec{font-weight:800;font-size:13px;margin:12px 0 4px;}
+  .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
+  .ol b{font-weight:800;}
+  a.link{color:#2563eb;font-weight:700;text-decoration:none;}
+  .hint{font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <h1>📋 CDF Tracker</h1>
+      <div class="title-right">
+        <span class="overall" id="overall"></span>
+        <span class="sync" id="syncBadge"><span class="dot off" id="syncDot"></span><span id="syncTxt">Sync</span></span>
+      </div>
+    </div>
+    <div class="nav" id="navbar">
+      <button class="arrow" id="prev" aria-label="Settimana precedente">‹</button>
+      <div class="weeklabel" id="weeklabel"></div>
+      <button class="arrow" id="next" aria-label="Settimana successiva">›</button>
+      <button class="today-btn" id="todayBtn">Oggi</button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-view="week" id="tabWeek">📅 Settimana</button>
+      <button class="tab" data-view="history" id="tabHistory">📊 Storico</button>
+      <button class="tab icon" data-view="settings" id="tabSettings">⚙️</button>
+    </div>
+  </header>
+
+  <main id="weekView"></main>
+  <main id="historyView" class="hidden"></main>
+  <main id="settingsView" class="hidden"></main>
+
+  <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+  <div class="hint" id="footHint"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ===================== Dati: sezioni e attivit&agrave; ===================== */
+const SECTIONS = [
+  { id:"fisica", name:"Fisica & Benessere", emoji:"🏃", color:"#22c55e", activities:[
+    {id:"respiro",name:"Respiro"},{id:"schiena",name:"Schiena"},{id:"bagua",name:"Ba Gua"},
+    {id:"trapz",name:"Tra pz e altro"},{id:"cfg",name:"CFG"},{id:"esyoga",name:"Es Yoga"},
+    {id:"kf",name:"KF"},{id:"occhi",name:"Occhi"},{id:"perin",name:"Perin"},
+    {id:"collo",name:"Collo"},{id:"polsi",name:"Polsi"},{id:"allungamento",name:"Allungamento"},
+    {id:"seqex",name:"Seqex e P"}
+  ]},
+  { id:"lavoro", name:"Lavoro", emoji:"💼", color:"#3b82f6", activities:[
+    {id:"indicazioni",name:"Indicazioni pz"},{id:"risprec",name:"Risp recensioni"},
+    {id:"mail",name:"Mail importanti"},{id:"promemoria",name:"Promemoria"},
+    {id:"recensioni",name:"Recensioni"},{id:"ordinefile",name:"Ordine file"},
+    {id:"foto",name:"Foto"},{id:"ripasso",name:"Ripasso"},
+    {id:"enagic",name:"Enagic"},{id:"pagamenti",name:"Pagamenti"}
+  ]},
+  { id:"finemese", name:"Fine Mese", emoji:"📅", color:"#f59e0b", activities:[
+    {id:"fopresenze",name:"Foglio presenze FO"},{id:"decalc",name:"Decalcificazione"}
+  ]},
+  { id:"corsi", name:"Ripasso Corsi", emoji:"📚", color:"#a855f7", activities:[
+    {id:"argA",name:"Argomento A"},{id:"argB",name:"Argomento B"},
+    {id:"argC",name:"Argomento C"},{id:"argD",name:"Argomento D"}
+  ]}
+];
+
+const DEFAULT_LABEL = {};
+SECTIONS.forEach(s=>s.activities.forEach(a=>DEFAULT_LABEL[a.id]=a.name));
+
+const DAYS_SHORT = ["L","M","M","G","V","S","D"];
+const MONTHS = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+const STORAGE_KEY = "cdfTracker_v2";
+const PANTRY_KEY  = "cdfPantryId";
+const BASKET = "cdf";
+
+/* ===================== Stato + persistenza locale ===================== */
+let data = {};
+try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
+if(!data._labels) data._labels = {};
+if(!data._updatedAt) data._updatedAt = 0;
+
+let pantryId = "";
+try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
+
+function saveLocal(){
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+  catch(e){ alert("Impossibile salvare in locale. Esci dalla navigazione privata."); }
+}
+
+/* ===================== Sincronizzazione (Pantry) ===================== */
+let syncState = pantryId ? "ok" : "off";
+let pushTimer = null;
+
+function pantryUrl(){ return "https://getpantry.cloud/apiv1/pantry/"+encodeURIComponent(pantryId)+"/basket/"+BASKET; }
+function setSync(s){ syncState=s; paintSync(); }
+function paintSync(){
+  const dot=document.getElementById("syncDot"), txt=document.getElementById("syncTxt");
+  dot.className="dot "+syncState;
+  txt.textContent = syncState==="ok"?"Sincronizzato":syncState==="saving"?"Salvataggio…":
+                    syncState==="error"?"Errore sync":"Sync off";
+}
+
+async function pullRemote(){
+  if(!pantryId) return undefined;
+  try{
+    const r = await fetch(pantryUrl(), {method:"GET", cache:"no-store"});
+    if(r.status===400) return null;             // cestino non ancora creato = vuoto
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    return await r.json();
+  }catch(e){ return "ERR"; }
+}
+function doPush(){
+  if(!pantryId) return;
+  setSync("saving");
+  fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)})
+    .then(r=>{ setSync(r.ok ? "ok" : "error"); })
+    .catch(()=>setSync("error"));
+}
+function schedulePush(){
+  if(!pantryId){ saveLocal(); return; }
+  saveLocal(); setSync("saving");
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(doPush, 1200);
+}
+async function reconcile(){
+  if(!pantryId){ setSync("off"); return; }
+  const remote = await pullRemote();
+  if(remote==="ERR"){ setSync("error"); return; }
+  const localT = data._updatedAt||0;
+  const remoteT = (remote && remote._updatedAt)||0;
+  if(remote && remoteT > localT){          // il cloud &egrave; pi&ugrave; recente -> adotto
+    data = remote; if(!data._labels)data._labels={}; saveLocal(); render();
+    setSync("ok");
+  } else if(!remote || localT > remoteT){  // il locale &egrave; pi&ugrave; recente -> invio
+    doPush();
+  } else { setSync("ok"); }
+}
+
+/* ===================== Helper date ===================== */
+function pad(n){ return String(n).length<2 ? "0"+n : ""+n; }
+function fmtKey(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function getMonday(input){ const x=new Date(input); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+
+let viewMonday = getMonday(new Date());
+let view = "week";
+
+/* ===================== Accesso ai dati ===================== */
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function actLabel(id){ return (data._labels && data._labels[id]) || DEFAULT_LABEL[id] || id; }
+
+function getCell(key, actId, day){ const w=data[key]; if(!w) return false; const a=w[actId]; return !!(a && a[day]); }
+function setCell(key, actId, day, val){
+  if(!data[key]) data[key]={};
+  if(!data[key][actId]) data[key][actId]=[false,false,false,false,false,false,false];
+  data[key][actId][day]=val;
+  if(data[key][actId].every(v=>!v)) delete data[key][actId];
+  if(Object.keys(data[key]).length===0) delete data[key];
+  data._updatedAt = Date.now();
+  schedulePush();
+}
+function activityDays(key, actId){ let c=0; for(let i=0;i<7;i++) if(getCell(key,actId,i)) c++; return c; }
+function sectionPct(key, section){ let done=0,total=section.activities.length*7; for(const a of section.activities) done+=activityDays(key,a.id); return total?done/total:0; }
+function dayPct(key, dayIdx){ let done=0,total=0; for(const s of SECTIONS) for(const a of s.activities){ total++; if(getCell(key,a.id,dayIdx)) done++; } return total?done/total:0; }
+function weekPct(key){ let done=0,total=0; for(const s of SECTIONS) for(const a of s.activities) for(let i=0;i<7;i++){ total++; if(getCell(key,a.id,i)) done++; } return total?done/total:0; }
+function pctTxt(p){ return Math.round(p*100)+"%"; }
+
+/* ===================== Header ===================== */
+function renderHeader(){
+  const sun = addDays(viewMonday,6);
+  const sameMonth = viewMonday.getMonth()===sun.getMonth();
+  const label = sameMonth
+    ? viewMonday.getDate()+" – "+sun.getDate()+" "+MONTHS[sun.getMonth()]
+    : viewMonday.getDate()+" "+MONTHS[viewMonday.getMonth()]+" – "+sun.getDate()+" "+MONTHS[sun.getMonth()];
+  document.getElementById("weeklabel").innerHTML = label + "<small>"+viewMonday.getFullYear()+"</small>";
+
+  const key = fmtKey(viewMonday);
+  document.getElementById("overall").innerHTML = view==="week" ? ("Sett. <b>"+pctTxt(weekPct(key))+"</b>") : "";
+
+  const isThisWeek = fmtKey(viewMonday)===fmtKey(getMonday(new Date()));
+  document.getElementById("todayBtn").classList.toggle("hidden", isThisWeek);
+  document.getElementById("navbar").classList.toggle("hidden", view!=="week");
+  paintSync();
+}
+
+/* ===================== Vista settimana ===================== */
+function renderWeek(){
+  const key = fmtKey(viewMonday);
+  const todayKey = fmtKey(new Date());
+  const dates = [];
+  for(let i=0;i<7;i++){ const d=addDays(viewMonday,i); dates.push({d, today: fmtKey(d)===todayKey}); }
+
+  let html = "";
+  SECTIONS.forEach(s=>{
+    const pct = sectionPct(key, s);
+    html += '<section class="section">';
+    html += '<div class="sec-head"><span class="sec-emoji">'+s.emoji+'</span>'+
+            '<span class="sec-name">'+esc(s.name)+'</span>'+
+            '<span class="sec-pct" style="color:'+s.color+'">'+pctTxt(pct)+'</span></div>';
+    html += '<div class="bar"><i style="width:'+(pct*100)+'%;background:'+s.color+'"></i></div>';
+    html += '<table><thead><tr><th class="lbl">Attività</th>';
+    dates.forEach((dd,i)=>{ html += '<th class="'+(dd.today?'todaycol':'')+'">'+DAYS_SHORT[i]+'<span class="dnum">'+dd.d.getDate()+'</span></th>'; });
+    html += '<th>%</th></tr></thead><tbody>';
+    s.activities.forEach(a=>{
+      html += '<tr><td class="lbl">'+esc(actLabel(a.id))+'</td>';
+      for(let i=0;i<7;i++){
+        const on = getCell(key,a.id,i);
+        html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" style="--c:'+s.color+'" data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
+      }
+      html += '<td class="rowpct">'+Math.round(activityDays(key,a.id)/7*100)+'%</td></tr>';
+    });
+    html += '</tbody></table></section>';
+  });
+  document.getElementById("weekView").innerHTML = html;
+
+  let dc = '<div class="daycard"><h3>Totale giornaliero</h3><div class="daygrid">';
+  for(let i=0;i<7;i++){
+    dc += '<div class="d'+(dates[i].today?' is-today':'')+'"><div class="lab">'+DAYS_SHORT[i]+'</div><div class="ring">'+Math.round(dayPct(key,i)*100)+'%</div></div>';
+  }
+  dc += '</div></div>';
+  document.getElementById("weekView").insertAdjacentHTML("afterbegin", dc);
+}
+
+/* ===================== Storico ===================== */
+function lastMondays(n){ const base=getMonday(new Date()); const arr=[]; for(let i=n-1;i>=0;i--) arr.push(addDays(base,-7*i)); return arr; }
+function hexToRgba(hex,a){ const n=parseInt(hex.slice(1),16); return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a.toFixed(2)+")"; }
+function heatColor(ratio,color){ if(ratio<=0) return "var(--line)"; return hexToRgba(color, 0.18+ratio*0.82); }
+
+function renderHistory(){
+  const weeks6 = lastMondays(6);
+  let chart = '<div class="hcard"><h3>📊 Ultime 6 settimane</h3><div class="chart">';
+  weeks6.forEach(m=>{
+    const p=weekPct(fmtKey(m)), h=Math.max(3,Math.round(p*100)), dark=p<0.18;
+    chart += '<div class="col"><div class="colbar" style="height:'+h+'%"><span class="colpct'+(dark?' dark':'')+'">'+Math.round(p*100)+'</span></div><div class="collabel">'+m.getDate()+'/'+(m.getMonth()+1)+'</div></div>';
+  });
+  chart += '</div></div>';
+
+  const weeks8 = lastMondays(8);
+  const hasAny = Object.keys(data).some(k=>k!=="_labels"&&k!=="_updatedAt");
+  let heat = '<div class="hcard"><h3>🗓️ Heatmap (giorni completati / 7)</h3>';
+  if(!hasAny){
+    heat += '<div class="empty">Ancora nessun dato.<br>Inizia a segnare le attività nella vista “Settimana”.</div>';
+  } else {
+    heat += '<div class="hm-wrap"><table class="hm"><thead><tr><th class="lbl"></th>';
+    weeks8.forEach(m=>{ heat += '<th>'+m.getDate()+'/'+(m.getMonth()+1)+'</th>'; });
+    heat += '</tr></thead><tbody>';
+    SECTIONS.forEach(s=>{
+      heat += '<tr class="sub"><td class="lbl">'+s.emoji+' '+esc(s.name)+'</td><td colspan="'+weeks8.length+'"></td></tr>';
+      s.activities.forEach(a=>{
+        heat += '<tr><td class="lbl">'+esc(actLabel(a.id))+'</td>';
+        weeks8.forEach(m=>{ const d=activityDays(fmtKey(m),a.id); heat += '<td><div class="swatch" style="background:'+heatColor(d/7,s.color)+'">'+(d>0?d:"")+'</div></td>'; });
+        heat += '</tr>';
+      });
+    });
+    heat += '</tbody></table></div></div>';
+  }
+  document.getElementById("historyView").innerHTML = chart + heat;
+}
+
+/* ===================== Impostazioni ===================== */
+function renderSettings(){
+  let h = "";
+
+  // --- Sincronizzazione ---
+  h += '<div class="hcard"><h3>🔄 Sincronizzazione tra dispositivi</h3>';
+  if(!pantryId){
+    h += '<p class="sub">Per condividere gli stessi dati tra Mac e iPhone, crea un codice gratuito (serve solo un\'email):</p>';
+    h += '<ol class="ol">'+
+         '<li>Apri <a class="link" href="https://getpantry.cloud" target="_blank" rel="noopener">getpantry.cloud</a></li>'+
+         '<li>Inserisci la tua email e premi <b>Get a Pantry</b></li>'+
+         '<li>Copia il <b>Pantry ID</b> (un codice lungo) e incollalo qui sotto</li>'+
+         '<li>Ripeti l\'incolla dello <b>stesso codice</b> su ogni dispositivo</li></ol>';
+  } else {
+    h += '<p class="sub">Sincronizzazione attiva. Usa lo <b>stesso codice</b> su tutti i dispositivi.</p>';
+  }
+  h += '<div class="field"><label>Pantry ID</label><input type="text" id="pantryInput" placeholder="incolla qui il codice…" value="'+esc(pantryId)+'" autocapitalize="off" autocorrect="off" spellcheck="false"></div>';
+  h += '<div class="row-btns"><button class="btn primary" id="saveSync">Salva e verifica</button>';
+  if(pantryId) h += '<button class="btn ghost" id="discSync">Disconnetti</button>';
+  h += '</div><div id="syncMsg"></div></div>';
+
+  // --- Rinomina attivit&agrave; ---
+  h += '<div class="hcard"><h3>✏️ Rinomina attività</h3>'+
+       '<p class="sub">Cambia i nomi (es. i 4 “Argomento” dei corsi). Si aggiornano ovunque.</p>';
+  SECTIONS.forEach(s=>{
+    h += '<div class="rename-sec">'+s.emoji+' '+esc(s.name)+'</div><div class="rename-list">';
+    s.activities.forEach(a=>{
+      h += '<div class="rename-row"><span class="ic">•</span><input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id])+'"></div>';
+    });
+    h += '</div>';
+  });
+  h += '<div class="row-btns" style="margin-top:12px"><button class="btn primary" id="saveNames">Salva nomi</button><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';
+
+  // --- Backup ---
+  h += '<div class="hcard"><h3>💾 Backup dati</h3>'+
+       '<p class="sub">Scarica una copia o ripristina i dati da un file.</p>'+
+       '<div class="row-btns"><button class="btn ghost" id="exportBtn">⬆️ Esporta</button>'+
+       '<button class="btn ghost" id="importBtn">⬇️ Importa</button></div></div>';
+
+  document.getElementById("settingsView").innerHTML = h;
+
+  document.getElementById("saveSync").onclick = onSaveSync;
+  if(pantryId) document.getElementById("discSync").onclick = onDiscSync;
+  document.getElementById("saveNames").onclick = onSaveNames;
+  document.getElementById("resetNames").onclick = onResetNames;
+  document.getElementById("exportBtn").onclick = exportData;
+  document.getElementById("importBtn").onclick = ()=>document.getElementById("importFile").click();
+}
+
+function msg(id, text, kind){ document.getElementById(id).innerHTML = '<div class="status-msg '+kind+'">'+text+'</div>'; }
+
+async function onSaveSync(){
+  const v = document.getElementById("pantryInput").value.trim();
+  if(!v){ msg("syncMsg","Incolla prima il codice Pantry.","err"); return; }
+  pantryId = v; try{ localStorage.setItem(PANTRY_KEY, v); }catch(e){}
+  msg("syncMsg","Verifica in corso…","info"); setSync("saving");
+  const remote = await pullRemote();
+  if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
+  const localHas = Object.keys(data).some(k=>k!=="_labels"&&k!=="_updatedAt");
+  const remoteHas = remote && Object.keys(remote).some(k=>k!=="_labels"&&k!=="_updatedAt");
+  if(remoteHas && (remote._updatedAt||0) >= (data._updatedAt||0)){
+    data = remote; if(!data._labels)data._labels={}; saveLocal(); render();
+    msg("syncMsg","✅ Collegato! Ho caricato i dati già presenti nel cloud.","ok");
+  } else {
+    doPush();
+    msg("syncMsg", localHas ? "✅ Collegato! Ho caricato i tuoi dati nel cloud." : "✅ Collegato! Pronto a sincronizzare.","ok");
+  }
+  setSync("ok");
+}
+function onDiscSync(){
+  if(!confirm("Disconnettere la sincronizzazione su questo dispositivo? I dati locali restano.")) return;
+  pantryId=""; try{ localStorage.removeItem(PANTRY_KEY); }catch(e){}
+  setSync("off"); renderSettings();
+}
+function onSaveNames(){
+  document.querySelectorAll("#settingsView input[data-rid]").forEach(inp=>{
+    const id=inp.getAttribute("data-rid"); const val=inp.value.trim();
+    if(val && val!==DEFAULT_LABEL[id]) data._labels[id]=val; else delete data._labels[id];
+  });
+  data._updatedAt=Date.now(); schedulePush();
+  msg("nameMsg","✅ Nomi salvati.","ok");
+}
+function onResetNames(){
+  if(!confirm("Ripristinare tutti i nomi predefiniti?")) return;
+  data._labels={}; data._updatedAt=Date.now(); schedulePush(); renderSettings();
+  msg("nameMsg","Nomi ripristinati.","info");
+}
+
+/* ===================== Esporta / Importa ===================== */
+function exportData(){
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href=url; a.download="cdf-tracker-backup-"+fmtKey(new Date())+".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+document.getElementById("importFile").addEventListener("change", function(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      const incoming=JSON.parse(ev.target.result);
+      if(typeof incoming!=="object"||incoming===null) throw new Error();
+      if(!confirm("Importare questo backup? I dati attuali verranno sostituiti.")) return;
+      data=incoming; if(!data._labels)data._labels={}; data._updatedAt=Date.now();
+      saveLocal(); schedulePush(); render();
+      alert("Backup importato.");
+    }catch(err){ alert("File non valido."); }
+  };
+  reader.readAsText(file); e.target.value="";
+});
+
+/* ===================== Render principale ===================== */
+function render(){
+  renderHeader();
+  document.getElementById("weekView").classList.toggle("hidden", view!=="week");
+  document.getElementById("historyView").classList.toggle("hidden", view!=="history");
+  document.getElementById("settingsView").classList.toggle("hidden", view!=="settings");
+  document.getElementById("footHint").innerHTML = (view==="settings")
+    ? "" : "I dati sono salvati su questo dispositivo" + (pantryId? " e sincronizzati nel cloud." : ". Attiva la sincronizzazione in ⚙️ per condividerli tra Mac e iPhone.");
+  if(view==="week") renderWeek();
+  else if(view==="history") renderHistory();
+  else renderSettings();
+}
+
+/* ===================== Eventi ===================== */
+document.getElementById("weekView").addEventListener("click", function(e){
+  const btn=e.target.closest(".cell"); if(!btn) return;
+  const key=fmtKey(viewMonday), actId=btn.dataset.act, day=parseInt(btn.dataset.day,10);
+  setCell(key, actId, day, !getCell(key,actId,day));
+  render();
+});
+document.getElementById("prev").onclick=()=>{ viewMonday=addDays(viewMonday,-7); render(); };
+document.getElementById("next").onclick=()=>{ viewMonday=addDays(viewMonday,7); render(); };
+document.getElementById("todayBtn").onclick=()=>{ viewMonday=getMonday(new Date()); render(); };
+document.getElementById("syncBadge").onclick=()=>{ view="settings"; setTabs(); render(); };
+document.getElementById("tabWeek").onclick=()=>{ view="week"; setTabs(); render(); };
+document.getElementById("tabHistory").onclick=()=>{ view="history"; setTabs(); render(); };
+document.getElementById("tabSettings").onclick=()=>{ view="settings"; setTabs(); render(); };
+function setTabs(){
+  document.getElementById("tabWeek").classList.toggle("active", view==="week");
+  document.getElementById("tabHistory").classList.toggle("active", view==="history");
+  document.getElementById("tabSettings").classList.toggle("active", view==="settings");
+}
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && pantryId) reconcile(); });
+
+/* ===================== Avvio ===================== */
+render();
+if(pantryId) reconcile();
+</script>
+</body>
+</html>
