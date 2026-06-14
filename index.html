@@ -209,9 +209,9 @@ const SECTIONS = [
     {id:"pagamenti",name:"Pagamenti",weekly:true}
   ]},
   { id:"corsi", name:"Corsi", emoji:"📚", activities:[
-    {id:"argA",name:"Argomento A"},{id:"argB",name:"Argomento B"},
-    {id:"argC",name:"Argomento C"},{id:"argD",name:"Argomento D"},
-    {id:"argE",name:"Argomento E"},{id:"argF",name:"Argomento F"},{id:"argG",name:"Argomento G"}
+    {id:"argA",name:"Argomento A",day:0},{id:"argB",name:"Argomento B",day:1},
+    {id:"argC",name:"Argomento C",day:2},{id:"argD",name:"Argomento D",day:3},
+    {id:"argE",name:"Argomento E",day:4},{id:"argF",name:"Argomento F",day:5},{id:"argG",name:"Argomento G",day:6}
   ]}
 ];
 
@@ -351,6 +351,7 @@ function setCell(key, actId, day, val){
 /* Quali indici-giorno sono "attivi" per questa attività in questa settimana */
 function activeDays(act, monday){
   if(act.weekly) return [0];                       // una sola casella (indice 0)
+  if(act.day!==undefined) return [act.day];        // un giorno fisso a settimana
   if(act.odd){ const ds=weekDates(monday); const out=[]; for(let i=0;i<7;i++) if(ds[i].getDate()%2===1) out.push(i); return out; }
   return [0,1,2,3,4,5,6];
 }
@@ -375,6 +376,7 @@ function dayStats(monday, i){
   let done=0,total=0;
   for(const sec of SECTIONS) for(const a of sec.activities){
     if(a.weekly) continue;
+    if(a.day!==undefined && a.day!==i) continue;
     if(a.odd && date.getDate()%2===0) continue;
     total++; if(getCell(key,a.id,i)) done++;
   }
@@ -423,22 +425,24 @@ function renderWeek(){
 
     orderedActivities(s).forEach(a=>{
       const rs = actStats(viewMonday, a);
-      let tag = a.weekly ? '<span class="tag">1×/sett</span>' : (a.odd ? '<span class="tag">gg dispari</span>' : '');
+      const cellCol = (a.weekly || a.day!==undefined) ? gradColor(rs.ratio) : col;
+      let tag = a.weekly ? '<span class="tag">1×/sett</span>'
+              : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>'
+              : (a.odd ? '<span class="tag">gg dispari</span>' : ''));
       html += '<tr><td class="lbl">'+esc(actLabel(a.id))+tag+'</td>';
 
       if(a.weekly){
         const on = getCell(key,a.id,0);
-        const wc = gradColor(rs.ratio);
         html += '<td colspan="7"><div class="weekcell"><button class="cell'+(on?' on':'')+'" '+
-                (on?'style="background:'+wc+';border-color:'+wc+'" ':'')+
+                (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
                 'data-act="'+a.id+'" data-day="0">✓</button><small>una volta a settimana</small></div></td>';
       } else {
+        const actSet = activeDays(a, viewMonday);
         for(let i=0;i<7;i++){
-          const applicable = !a.odd || dates[i].d.getDate()%2===1;
-          if(!applicable){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis">·</span></td>'; continue; }
+          if(actSet.indexOf(i)<0){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis">·</span></td>'; continue; }
           const on = getCell(key,a.id,i);
           html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" '+
-                  (on?'style="background:'+col+';border-color:'+col+'" ':'')+
+                  (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
                   'data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
         }
       }
