@@ -259,12 +259,42 @@ async function pullRemote(){
     return await r.json();
   }catch(e){ return "ERR"; }
 }
-function doPush(){
+/* Pantry aggiunge _metadata: lo togliamo dal nostro oggetto */
+function stripMeta(o){ if(!o || typeof o!=="object") return o; const c=Object.assign({},o); delete c._metadata; return c; }
+/* Unisce due versioni dei dati senza perdere nulla (nomi, ordine, spunte). */
+function mergeData(local, remote){
+  remote = stripMeta(remote);
+  if(!remote || typeof remote!=="object") return local;
+  if(!local) return remote;
+  const localNewer = (local._updatedAt||0) >= (remote._updatedAt||0);
+  const newer = localNewer?local:remote, older = localNewer?remote:local;
+  const out = {};
+  const weeks = {};
+  Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_")) weeks[k]=1; });
+  Object.keys(weeks).forEach(wk=>{
+    const merged = Object.assign({}, older[wk]||{}, newer[wk]||{});  // per attività vince il più recente
+    if(Object.keys(merged).length) out[wk]=merged;
+  });
+  out._labels = Object.assign({}, older._labels||{}, newer._labels||{}); // unione nomi
+  out._order  = newer._order || older._order || {};                      // ordine: vince il più recente
+  out._updatedAt = Math.max(local._updatedAt||0, remote._updatedAt||0);
+  return out;
+}
+function safeRender(){ const a=document.activeElement; if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA")) return; render(); }
+function hasRealData(o){ return Object.keys(o||{}).some(k=>!k.startsWith("_") && o[k] && Object.values(o[k]).some(arr=>Array.isArray(arr)&&arr.some(Boolean))); }
+async function doPush(){
   if(!pantryId) return;
   setSync("saving");
-  fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)})
-    .then(r=>{ setSync(r.ok ? "ok" : "error"); })
-    .catch(()=>setSync("error"));
+  try{
+    const remote = await pullRemote();              // leggi-unisci-scrivi: non sovrascrivo il cloud
+    if(remote && remote!=="ERR"){
+      const before = JSON.stringify(data);
+      data = mergeData(data, remote);
+      if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
+    }
+    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+    setSync(r.ok ? "ok" : "error");
+  }catch(e){ setSync("error"); }
 }
 function schedulePush(){
   if(!pantryId){ saveLocal(); return; }
@@ -276,11 +306,12 @@ async function reconcile(){
   if(!pantryId){ setSync("off"); return; }
   const remote = await pullRemote();
   if(remote==="ERR"){ setSync("error"); return; }
-  const localT = data._updatedAt||0;
-  const remoteT = (remote && remote._updatedAt)||0;
-  if(remote && remoteT > localT){ data = remote; if(!data._labels)data._labels={}; saveLocal(); render(); setSync("ok"); }
-  else if(!remote || localT > remoteT){ doPush(); }
-  else { setSync("ok"); }
+  const before = JSON.stringify(data);
+  data = mergeData(data, remote);
+  if(!data._labels) data._labels={};
+  if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
+  if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush();  // allinea il cloud al merge
+  else setSync("ok");
 }
 
 /* ===================== Helper date ===================== */
@@ -313,8 +344,6 @@ function setCell(key, actId, day, val){
   if(!data[key]) data[key]={};
   if(!data[key][actId]) data[key][actId]=[false,false,false,false,false,false,false];
   data[key][actId][day]=val;
-  if(data[key][actId].every(v=>!v)) delete data[key][actId];
-  if(Object.keys(data[key]).length===0) delete data[key];
   data._updatedAt = Date.now();
   schedulePush();
 }
@@ -442,7 +471,7 @@ function renderHistory(){
   chart += '</div></div>';
 
   const weeks8 = lastMondays(8);
-  const hasAny = Object.keys(data).some(k=>!k.startsWith("_"));
+  const hasAny = hasRealData(data);
   let heat = '<div class="hcard"><h3>🗓️ Heatmap (completamento settimanale)</h3>';
   if(!hasAny){
     heat += '<div class="empty">Ancora nessun dato.<br>Inizia a segnare le attività nella vista “Settimana”.</div>';
@@ -521,15 +550,9 @@ async function onSaveSync(){
   msg("syncMsg","Verifica in corso…","info"); setSync("saving");
   const remote = await pullRemote();
   if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
-  const localHas = Object.keys(data).some(k=>!k.startsWith("_"));
-  const remoteHas = remote && Object.keys(remote).some(k=>!k.startsWith("_"));
-  if(remoteHas && (remote._updatedAt||0) >= (data._updatedAt||0)){
-    data = remote; if(!data._labels)data._labels={}; saveLocal(); render();
-    msg("syncMsg","✅ Collegato! Ho caricato i dati già presenti nel cloud.","ok");
-  } else {
-    doPush();
-    msg("syncMsg", localHas ? "✅ Collegato! Ho caricato i tuoi dati nel cloud." : "✅ Collegato! Pronto a sincronizzare.","ok");
-  }
+  data = mergeData(data, remote); if(!data._labels) data._labels={};
+  saveLocal(); render(); doPush();
+  msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
   setSync("ok");
 }
 function onDiscSync(){
