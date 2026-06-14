@@ -141,6 +141,9 @@
   .rename-row{display:flex;align-items:center;gap:8px;}
   .rename-row .ic{font-size:15px;width:20px;text-align:center;flex:0 0 auto;}
   .rename-row input{flex:1;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:#fff;color:var(--ink);}
+  .rename-row .movebtn{width:36px;height:38px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;font-weight:800;color:var(--ink);cursor:pointer;flex:0 0 auto;}
+  .rename-row .movebtn:disabled{opacity:.3;cursor:default;}
+  .rename-row .movebtn:active:not(:disabled){background:var(--line);}
   .rename-sec{font-weight:800;font-size:13px;margin:12px 0 4px;}
   .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
   .ol b{font-weight:800;}
@@ -296,6 +299,14 @@ function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(
 /* ===================== Accesso ai dati ===================== */
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function actLabel(id){ return (data._labels && data._labels[id]) || DEFAULT_LABEL[id] || id; }
+function orderedActivities(sec){
+  const ord = (data._order && data._order[sec.id]) || [];
+  const byId = {}; sec.activities.forEach(a=>byId[a.id]=a);
+  const out = [];
+  ord.forEach(id=>{ if(byId[id]){ out.push(byId[id]); delete byId[id]; } });
+  sec.activities.forEach(a=>{ if(byId[a.id]) out.push(a); });
+  return out;
+}
 
 function getCell(key, actId, day){ const w=data[key]; if(!w) return false; const a=w[actId]; return !!(a && a[day]); }
 function setCell(key, actId, day, val){
@@ -381,15 +392,16 @@ function renderWeek(){
     dates.forEach((dd,i)=>{ html += '<th class="'+(dd.today?'todaycol':'')+'">'+DAYS_SHORT[i]+'<span class="dnum">'+dd.d.getDate()+'</span></th>'; });
     html += '<th>%</th></tr></thead><tbody>';
 
-    s.activities.forEach(a=>{
+    orderedActivities(s).forEach(a=>{
       const rs = actStats(viewMonday, a);
       let tag = a.weekly ? '<span class="tag">1×/sett</span>' : (a.odd ? '<span class="tag">gg dispari</span>' : '');
       html += '<tr><td class="lbl">'+esc(actLabel(a.id))+tag+'</td>';
 
       if(a.weekly){
         const on = getCell(key,a.id,0);
+        const wc = gradColor(rs.ratio);
         html += '<td colspan="7"><div class="weekcell"><button class="cell'+(on?' on':'')+'" '+
-                (on?'style="background:'+col+';border-color:'+col+'" ':'')+
+                (on?'style="background:'+wc+';border-color:'+wc+'" ':'')+
                 'data-act="'+a.id+'" data-day="0">✓</button><small>una volta a settimana</small></div></td>';
       } else {
         for(let i=0;i<7;i++){
@@ -440,7 +452,7 @@ function renderHistory(){
     heat += '</tr></thead><tbody>';
     SECTIONS.forEach(s=>{
       heat += '<tr class="sub"><td class="lbl">'+s.emoji+' '+esc(s.name)+'</td><td colspan="'+weeks8.length+'"></td></tr>';
-      s.activities.forEach(a=>{
+      orderedActivities(s).forEach(a=>{
         heat += '<tr><td class="lbl">'+esc(actLabel(a.id))+'</td>';
         weeks8.forEach(m=>{ const st=actStats(m,a); const bg = st.done<=0 ? "var(--line)" : gradColor(st.ratio);
           heat += '<td><div class="swatch" style="background:'+bg+'">'+(st.done>0?st.done:"")+'</div></td>'; });
@@ -471,12 +483,17 @@ function renderSettings(){
   if(pantryId) h += '<button class="btn ghost" id="discSync">Disconnetti</button>';
   h += '</div><div id="syncMsg"></div></div>';
 
-  h += '<div class="hcard"><h3>✏️ Rinomina attività</h3>'+
-       '<p class="sub">Cambia i nomi (es. gli “Argomento” dei corsi). Si aggiornano ovunque.</p>';
+  h += '<div class="hcard"><h3>✏️ Rinomina e riordina attività</h3>'+
+       '<p class="sub">Cambia i nomi e usa ▲▼ per spostare le voci su/giù. Si aggiorna ovunque.</p>';
   SECTIONS.forEach(s=>{
+    const ordered = orderedActivities(s);
     h += '<div class="rename-sec">'+s.emoji+' '+esc(s.name)+'</div><div class="rename-list">';
-    s.activities.forEach(a=>{
-      h += '<div class="rename-row"><span class="ic">•</span><input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id])+'"></div>';
+    ordered.forEach((a,idx)=>{
+      h += '<div class="rename-row">'+
+           '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id])+'">'+
+           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+(idx>0?'':' disabled')+'>▲</button>'+
+           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="1"'+(idx<ordered.length-1?'':' disabled')+'>▼</button>'+
+           '</div>';
     });
     h += '</div>';
   });
@@ -520,13 +537,22 @@ function onDiscSync(){
   pantryId=""; try{ localStorage.removeItem(PANTRY_KEY); }catch(e){}
   setSync("off"); renderSettings();
 }
-function onSaveNames(){
+function collectNames(){
   document.querySelectorAll("#settingsView input[data-rid]").forEach(inp=>{
     const id=inp.getAttribute("data-rid"); const val=inp.value.trim();
     if(val && val!==DEFAULT_LABEL[id]) data._labels[id]=val; else delete data._labels[id];
   });
-  data._updatedAt=Date.now(); schedulePush();
-  msg("nameMsg","✅ Nomi salvati.","ok");
+}
+function onSaveNames(){ collectNames(); data._updatedAt=Date.now(); schedulePush(); msg("nameMsg","✅ Nomi salvati.","ok"); }
+function moveActivity(sectionId, actId, dir){
+  collectNames();
+  const sec = SECTIONS.find(s=>s.id===sectionId); if(!sec) return;
+  const cur = orderedActivities(sec).map(a=>a.id);
+  const idx = cur.indexOf(actId), j = idx+dir;
+  if(idx<0 || j<0 || j>=cur.length) return;
+  const t=cur[idx]; cur[idx]=cur[j]; cur[j]=t;
+  data._order = data._order || {}; data._order[sectionId] = cur;
+  data._updatedAt = Date.now(); schedulePush(); renderSettings();
 }
 function onResetNames(){
   if(!confirm("Ripristinare tutti i nomi predefiniti?")) return;
@@ -578,6 +604,10 @@ document.getElementById("weekView").addEventListener("click", function(e){
   const key=fmtKey(viewMonday), actId=btn.dataset.act, day=parseInt(btn.dataset.day,10);
   setCell(key, actId, day, !getCell(key,actId,day));
   render();
+});
+document.getElementById("settingsView").addEventListener("click", function(e){
+  const b=e.target.closest(".movebtn"); if(!b || b.disabled) return;
+  moveActivity(b.dataset.msec, b.dataset.mact, parseInt(b.dataset.mdir,10));
 });
 document.getElementById("prev").onclick=()=>{ viewMonday=addDays(viewMonday,-7); render(); };
 document.getElementById("next").onclick=()=>{ viewMonday=addDays(viewMonday,7); render(); };
