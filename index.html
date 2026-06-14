@@ -184,6 +184,7 @@
 
 <script>
 "use strict";
+const APP_VERSION = "1781466642";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Sezioni e attività =====================
    Tipi di attività:
@@ -650,9 +651,24 @@ function setTabs(){
 }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && pantryId) reconcile(); });
 
+/* ===================== Auto-aggiornamento ===================== */
+/* All'apertura controlla se sul sito c'è una versione più recente e, in tal caso,
+   ricarica automaticamente (con cache-buster) così Mac e iPhone restano aggiornati. */
+async function checkUpdate(){
+  try{
+    const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
+    const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781466642" && !sessionStorage.getItem("cdfReloaded")){
+      sessionStorage.setItem("cdfReloaded","1");
+      location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+    }
+  }catch(e){}
+}
+
 /* ===================== Avvio ===================== */
 render();
 if(pantryId) reconcile();
+checkUpdate();
 </script>
 </body>
 </html>
