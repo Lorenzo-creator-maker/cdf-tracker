@@ -213,7 +213,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781671448";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781671684";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -278,6 +278,7 @@ if(!data._updatedAt)        data._updatedAt = 0;
 if(!data._sectionNames)     data._sectionNames = {};     // { secId: {name,emoji} }
 if(!data._customActivities) data._customActivities = {};  // { secId: [{id,name,...}] }
 if(!data._hiddenActivities) data._hiddenActivities = {};  // { actId: true }
+if(!data._deletedActivities) data._deletedActivities = {}; // { actId: true } — eliminazione definitiva
 
 let pantryId = "";
 try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
@@ -347,6 +348,8 @@ function mergeData(local, remote){
   out._customActivities = mergedCustom;
   // _hiddenActivities: union (se uno nasconde, nasconde)
   out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
+  // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque
+  out._deletedActivities = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
   out._order  = newer._order || older._order || {};
   out._updatedAt = Math.max(local._updatedAt||0, remote._updatedAt||0);
   return out;
@@ -383,6 +386,7 @@ async function reconcile(){
   if(!data._sectionNames)     data._sectionNames={};
   if(!data._customActivities) data._customActivities={};
   if(!data._hiddenActivities) data._hiddenActivities={};
+  if(!data._deletedActivities) data._deletedActivities={};
   // Ricarica i DEFAULT_LABEL con le attività custom sincronizzate
   for(const sec of SECTIONS){
     const customs=(data._customActivities&&data._customActivities[sec.id])||[];
@@ -428,9 +432,11 @@ function orderedActivities(sec, includeHidden){
   const all = allActivities(sec);
   const byId = {}; all.forEach(a=>byId[a.id]=a);
   const hidden = data._hiddenActivities || {};
+  const deleted = data._deletedActivities || {};
   const out = [];
-  ord.forEach(id=>{ if(byId[id] && (includeHidden || !hidden[id])){ out.push(byId[id]); delete byId[id]; } });
-  all.forEach(a=>{ if(byId[a.id] && (includeHidden || !hidden[a.id])) out.push(a); });
+  // I deleted vengono esclusi SEMPRE (anche da includeHidden)
+  ord.forEach(id=>{ if(byId[id] && !deleted[id] && (includeHidden || !hidden[id])){ out.push(byId[id]); delete byId[id]; } });
+  all.forEach(a=>{ if(byId[a.id] && !deleted[a.id] && (includeHidden || !hidden[a.id])) out.push(a); });
   return out;
 }
 
@@ -676,8 +682,8 @@ function renderSettings(){
       if(isCustom){
         h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
       } else {
-        h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+
-             (isHidden?'👁':'🙅')+'</button>';
+        h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>';
+        h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>';
       }
       h += '</div>';
     });
@@ -740,6 +746,9 @@ function renderSettings(){
   document.querySelectorAll("[data-hideact]").forEach(btn=>{
     btn.onclick = function(){ collectNames(); toggleHideActivity(this.dataset.hideact); };
   });
+  document.querySelectorAll("[data-delbuiltin]").forEach(btn=>{
+    btn.onclick = function(){ collectNames(); deleteBuiltinActivity(this.dataset.delbuiltin); };
+  });
   // Tipo attività — listener delegato sull'intera settings view
   document.getElementById("settingsView").querySelectorAll("[id^='addType_']").forEach(sel=>{
     sel.onchange = function(){
@@ -762,6 +771,7 @@ async function onSaveSync(){
   if(!data._sectionNames)     data._sectionNames={};
   if(!data._customActivities) data._customActivities={};
   if(!data._hiddenActivities) data._hiddenActivities={};
+  if(!data._deletedActivities) data._deletedActivities={};
   saveLocal(); render(); doPush();
   msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
   setSync("ok");
@@ -826,6 +836,14 @@ function toggleHideActivity(actId){
   if(!data._hiddenActivities) data._hiddenActivities={};
   if(data._hiddenActivities[actId]) delete data._hiddenActivities[actId];
   else data._hiddenActivities[actId]=true;
+  data._updatedAt=Date.now(); schedulePush(); renderSettings();
+}
+function deleteBuiltinActivity(actId){
+  if(!confirm('Eliminare definitivamente questa attività? Non comparirà più nella lista.\n(Le spunte passate restano salvate nei dati.)')) return;
+  if(!data._deletedActivities) data._deletedActivities={};
+  data._deletedActivities[actId]=true;
+  // togli anche da hidden se era nascosta
+  if(data._hiddenActivities) delete data._hiddenActivities[actId];
   data._updatedAt=Date.now(); schedulePush(); renderSettings();
 }
 function moveActivity(sectionId, actId, dir){
@@ -930,7 +948,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671448" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671684" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
