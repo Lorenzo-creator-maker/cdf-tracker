@@ -213,7 +213,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781671684";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781671917";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -273,6 +273,18 @@ const BASKET = "cdf";
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
+const MIN_WEEK = "2026-06-15";
+let pruned = false;
+Object.keys(data).forEach(k => {
+  if (!k.startsWith("_") && k < MIN_WEEK) {
+    delete data[k];
+    pruned = true;
+  }
+});
+if (pruned) {
+  data._updatedAt = Date.now();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
 if(!data._labels)           data._labels = {};
 if(!data._updatedAt)        data._updatedAt = 0;
 if(!data._sectionNames)     data._sectionNames = {};     // { secId: {name,emoji} }
@@ -322,6 +334,7 @@ function mergeData(local, remote){
   const weeks = {};
   Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_")) weeks[k]=1; });
   Object.keys(weeks).forEach(wk=>{
+    if(wk < MIN_WEEK) return; // Filtra le settimane precedenti
     const merged = {};
     const allActs = new Set(Object.keys(older[wk]||{}).concat(Object.keys(newer[wk]||{})));
     allActs.forEach(actId=>{
@@ -504,6 +517,17 @@ function renderHeader(){
   const isThisWeek = fmtKey(viewMonday)===fmtKey(getMonday(new Date()));
   document.getElementById("todayBtn").classList.toggle("hidden", isThisWeek);
   document.getElementById("navbar").classList.toggle("hidden", view!=="week");
+
+  // Limita navigazione indietro
+  const minWeek = new Date(MIN_WEEK);
+  const canPrev = viewMonday > minWeek;
+  const prevBtn = document.getElementById("prev");
+  if(prevBtn){
+    prevBtn.disabled = !canPrev;
+    prevBtn.style.opacity = canPrev ? "1" : "0.3";
+    prevBtn.style.cursor = canPrev ? "pointer" : "default";
+  }
+
   paintSync();
 }
 
@@ -583,14 +607,21 @@ function lastMondaysOffset(n, offset){
 
 function renderHistory(){
   const isAtNow = historyOffset === 0;
-  const weeks6 = lastMondaysOffset(6, historyOffset);
+  const weeks6 = lastMondaysOffset(6, historyOffset).filter(m => fmtKey(m) >= MIN_WEEK);
+  
+  if (weeks6.length === 0) {
+    document.getElementById("historyView").innerHTML = '<div class="hcard"><div class="empty">Nessun dato storico disponibile.</div></div>';
+    return;
+  }
+
   const lastW  = weeks6[weeks6.length-1];
   const firstW = weeks6[0];
   const rangeLabel = firstW.getDate()+'/'+(firstW.getMonth()+1)+' – '+lastW.getDate()+'/'+(lastW.getMonth()+1);
 
   // Barra di navigazione storico
+  const canPrevHist = fmtKey(firstW) > MIN_WEEK;
   let nav = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
-  nav += '<button class="arrow" id="histPrev" aria-label="Settimane precedenti" style="flex:0 0 auto">‹</button>';
+  nav += '<button class="arrow" id="histPrev" '+(canPrevHist?'':'disabled style="opacity:.3;cursor:default;"')+' aria-label="Settimane precedenti" style="flex:0 0 auto">‹</button>';
   nav += '<div style="flex:1;text-align:center;font-weight:700;font-size:14px;">'+rangeLabel+'<br><small style="font-weight:500;color:var(--muted);font-size:11px;">'+firstW.getFullYear()+'</small></div>';
   nav += '<button class="arrow" id="histNext" aria-label="Settimane successive" '+(isAtNow?'disabled style="opacity:.3;cursor:default;"':'')+' style="flex:0 0 auto">›</button>';
   if(!isAtNow) nav += '<button class="today-btn" id="histToday" style="font-size:11px;height:36px;padding:0 10px;">Oggi</button>';
@@ -603,10 +634,10 @@ function renderHistory(){
   });
   chart += '</div></div>';
 
-  const weeks8 = lastMondaysOffset(8, historyOffset);
+  const weeks8 = lastMondaysOffset(8, historyOffset).filter(m => fmtKey(m) >= MIN_WEEK);
   const hasAny = hasRealData(data);
   let heat = '<div class="hcard"><h3>🗓️ Heatmap (completamento settimanale)</h3>';
-  if(!hasAny){
+  if(!hasAny || weeks8.length === 0){
     heat += '<div class="empty">Ancora nessun dato.<br>Inizia a segnare le attività nella vista “Settimana”.</div>';
   } else {
     heat += '<div class="hm-wrap"><table class="hm"><thead><tr><th class="lbl"></th>';
@@ -627,11 +658,31 @@ function renderHistory(){
   document.getElementById("historyView").innerHTML = chart + heat;
 
   // Event listener frecce storico
-  document.getElementById("histPrev").onclick = function(){ historyOffset--; renderHistory(); };
+  const prevBtnHist = document.getElementById("histPrev");
+  if(prevBtnHist) {
+    prevBtnHist.onclick = function(){
+      if(canPrevHist){
+        historyOffset--;
+        renderHistory();
+      }
+    };
+  }
   const nextBtn = document.getElementById("histNext");
-  if(nextBtn) nextBtn.onclick = function(){ if(historyOffset<0){ historyOffset++; renderHistory(); } };
+  if(nextBtn) {
+    nextBtn.onclick = function(){
+      if(historyOffset<0){
+        historyOffset++;
+        renderHistory();
+      }
+    };
+  }
   const todayBtn2 = document.getElementById("histToday");
-  if(todayBtn2) todayBtn2.onclick = function(){ historyOffset=0; renderHistory(); };
+  if(todayBtn2) {
+    todayBtn2.onclick = function(){
+      historyOffset=0;
+      renderHistory();
+    };
+  }
 }
 
 /* ===================== Impostazioni ===================== */
@@ -917,7 +968,12 @@ document.getElementById("settingsView").addEventListener("click", function(e){
   const b=e.target.closest(".movebtn"); if(!b || b.disabled) return;
   moveActivity(b.dataset.msec, b.dataset.mact, parseInt(b.dataset.mdir,10));
 });
-document.getElementById("prev").onclick=()=>{ viewMonday=addDays(viewMonday,-7); render(); };
+document.getElementById("prev").onclick=()=>{
+  const minWeek = new Date(MIN_WEEK);
+  if (viewMonday <= minWeek) return;
+  viewMonday=addDays(viewMonday,-7);
+  render();
+};
 document.getElementById("next").onclick=()=>{ viewMonday=addDays(viewMonday,7); render(); };
 document.getElementById("todayBtn").onclick=()=>{ viewMonday=getMonday(new Date()); render(); };
 document.getElementById("syncBadge").onclick=()=>{ view="settings"; setTabs(); render(); };
@@ -948,7 +1004,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671684" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671917" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
