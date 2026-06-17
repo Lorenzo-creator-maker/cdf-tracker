@@ -13,6 +13,26 @@
     --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
     --line:#e2e8f0; --today:#fef9c3; --todayLine:#facc15;
     --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+    --headerBg:rgba(241,245,249,.92);
+    --primary:#0f172a; --primary-fg:#ffffff;
+  }
+  /* Palette dark — attiva quando il sistema preferisce dark e l'utente non ha forzato light */
+  @media (prefers-color-scheme: dark){
+    :root:not(.light){
+      --bg:#0f172a; --card:#1e293b; --ink:#e2e8f0; --muted:#94a3b8;
+      --line:#334155; --today:rgba(250,204,21,.12); --todayLine:#ca8a04;
+      --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+      --headerBg:rgba(15,23,42,.92);
+      --primary:#f1f5f9; --primary-fg:#0f172a;
+    }
+  }
+  /* Palette dark — forzata via toggle manuale */
+  :root.dark{
+    --bg:#0f172a; --card:#1e293b; --ink:#e2e8f0; --muted:#94a3b8;
+    --line:#334155; --today:rgba(250,204,21,.12); --todayLine:#ca8a04;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+    --headerBg:rgba(15,23,42,.92);
+    --primary:#f1f5f9; --primary-fg:#0f172a;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;}
@@ -24,7 +44,7 @@
   }
   .wrap{max-width:760px;margin:0 auto;padding:12px 12px 60px;}
 
-  header{position:sticky;top:0;z-index:20;background:rgba(241,245,249,.92);
+  header{position:sticky;top:0;z-index:20;background:var(--headerBg);
     backdrop-filter:saturate(180%) blur(8px);padding:8px 12px 6px;margin:-12px -12px 8px;
     border-bottom:1px solid var(--line);}
   .title{display:flex;align-items:center;justify-content:space-between;gap:8px;}
@@ -47,15 +67,15 @@
   .nav .arrow:active{background:var(--line);}
   .weeklabel{flex:1;text-align:center;font-weight:700;font-size:15px;line-height:1.15;}
   .weeklabel small{display:block;font-weight:500;color:var(--muted);font-size:11px;margin-top:1px;}
-  .today-btn{height:40px;padding:0 14px;border-radius:12px;border:0;background:var(--ink);
-    color:#fff;font-weight:700;font-size:13px;cursor:pointer;flex:0 0 auto;}
+  .today-btn{height:40px;padding:0 14px;border-radius:12px;border:0;background:var(--primary);
+    color:var(--primary-fg);font-weight:700;font-size:13px;cursor:pointer;flex:0 0 auto;}
   .today-btn:active{opacity:.85;}
   .hidden{display:none!important;}
 
   .tabs{display:flex;gap:6px;margin-top:8px;}
   .tab{flex:1;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
     font-weight:700;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
-  .tab.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tab.active{background:var(--primary);color:var(--primary-fg);border-color:var(--primary);}
   .tab.icon{flex:0 0 46px;}
 
   .section{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
@@ -81,14 +101,14 @@
     border-radius:5px;padding:1px 4px;margin-left:5px;vertical-align:middle;}
 
   .cell{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--line);
-    background:#fff;display:inline-flex;align-items:center;justify-content:center;
+    background:var(--card);display:inline-flex;align-items:center;justify-content:center;
     cursor:pointer;color:transparent;font-size:15px;font-weight:800;margin:0 auto;
     transition:transform .05s ease;}
   .cell:active{transform:scale(.88);}
   .cell.on{color:#fff;}
-  .celldis{width:30px;height:30px;border-radius:8px;border:1.5px dashed #e2e8f0;
-    background:#f8fafc;display:inline-flex;align-items:center;justify-content:center;
-    color:#cbd5e1;font-size:13px;margin:0 auto;}
+  .celldis{width:30px;height:30px;border-radius:8px;border:1.5px dashed var(--line);
+    background:var(--bg);display:inline-flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:13px;margin:0 auto;}
   .weekcell{display:flex;align-items:center;justify-content:center;gap:8px;}
   .weekcell small{color:var(--muted);font-size:11px;font-weight:700;}
 
@@ -127,9 +147,9 @@
   .field{margin-bottom:10px;}
   .field label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;}
   .field input[type=text]{width:100%;height:42px;border:1px solid var(--line);border-radius:10px;
-    padding:0 12px;font-size:15px;background:#fff;color:var(--ink);}
+    padding:0 12px;font-size:15px;background:var(--card);color:var(--ink);}
   .btn{height:42px;padding:0 16px;border-radius:10px;border:0;font-weight:700;font-size:14px;cursor:pointer;}
-  .btn.primary{background:var(--ink);color:#fff;}
+  .btn.primary{background:var(--primary);color:var(--primary-fg);}
   .btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);}
   .btn:active{opacity:.85;}
   .row-btns{display:flex;gap:8px;flex-wrap:wrap;}
@@ -140,7 +160,7 @@
   .rename-list{display:flex;flex-direction:column;gap:6px;}
   .rename-row{display:flex;align-items:center;gap:8px;}
   .rename-row .ic{font-size:15px;width:20px;text-align:center;flex:0 0 auto;}
-  .rename-row input{flex:1;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:#fff;color:var(--ink);}
+  .rename-row input{flex:1;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);}
   .rename-row .movebtn{width:36px;height:38px;border:1px solid var(--line);border-radius:9px;background:var(--card);font-size:13px;font-weight:800;color:var(--ink);cursor:pointer;flex:0 0 auto;}
   .rename-row .movebtn:disabled{opacity:.3;cursor:default;}
   .rename-row .movebtn:active:not(:disabled){background:var(--line);}
@@ -159,6 +179,7 @@
       <div class="title-right">
         <span class="overall" id="overall"></span>
         <span class="sync" id="syncBadge"><span class="dot off" id="syncDot"></span><span id="syncTxt">Sync</span></span>
+        <button class="sync" id="themeToggle" aria-label="Cambia tema" style="border:0;cursor:pointer;">🌙</button>
       </div>
     </div>
     <div class="nav" id="navbar">
@@ -168,9 +189,9 @@
       <button class="today-btn" id="todayBtn">Oggi</button>
     </div>
     <div class="tabs">
-      <button class="tab active" data-view="week" id="tabWeek">📅 Settimana</button>
-      <button class="tab" data-view="history" id="tabHistory">📊 Storico</button>
-      <button class="tab icon" data-view="settings" id="tabSettings">⚙️</button>
+      <button class="tab active" role="tab" aria-selected="true" data-view="week" id="tabWeek">📅 Settimana</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="history" id="tabHistory">📊 Storico</button>
+      <button class="tab icon" role="tab" aria-selected="false" data-view="settings" id="tabSettings">⚙️</button>
     </div>
   </header>
 
@@ -184,7 +205,22 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781466642";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781668324";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+
+/* ===================== Tema (dark / light) ===================== */
+const THEME_KEY = "cdfTheme";
+function applyTheme(){
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const dark = saved === "dark" || (saved !== "light" && prefersDark);
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.classList.toggle("light", !dark);
+  const btn = document.getElementById("themeToggle");
+  if(btn) btn.textContent = dark ? "☀️" : "🌙";
+  const meta = document.querySelector("meta[name='theme-color']");
+  if(meta) meta.setAttribute("content", dark ? "#0f172a" : "#f1f5f9");
+}
+applyTheme();
 
 /* ===================== Sezioni e attività =====================
    Tipi di attività:
@@ -273,7 +309,14 @@ function mergeData(local, remote){
   const weeks = {};
   Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_")) weeks[k]=1; });
   Object.keys(weeks).forEach(wk=>{
-    const merged = Object.assign({}, older[wk]||{}, newer[wk]||{});  // per attività vince il più recente
+    const merged = {};
+    const allActs = new Set(Object.keys(older[wk]||{}).concat(Object.keys(newer[wk]||{})));
+    allActs.forEach(actId=>{
+      const a=(older[wk]||{})[actId], b=(newer[wk]||{})[actId];
+      if(!a){ merged[actId]=b; }
+      else if(!b){ merged[actId]=a; }
+      else{ merged[actId]=a.map(function(v,i){ return v||b[i]; }); } // OR cella per cella
+    });
     if(Object.keys(merged).length) out[wk]=merged;
   });
   out._labels = Object.assign({}, older._labels||{}, newer._labels||{}); // unione nomi
@@ -434,16 +477,21 @@ function renderWeek(){
 
       if(a.weekly){
         const on = getCell(key,a.id,0);
+        const lbl = esc(actLabel(a.id))+', settimana '+viewMonday.getDate()+'-'+addDays(viewMonday,6).getDate();
         html += '<td colspan="7"><div class="weekcell"><button class="cell'+(on?' on':'')+'" '+
                 (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
+                'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+lbl+'" '+
                 'data-act="'+a.id+'" data-day="0">✓</button><small>una volta a settimana</small></div></td>';
       } else {
         const actSet = activeDays(a, viewMonday);
+        const DAYS_LONG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];
         for(let i=0;i<7;i++){
-          if(actSet.indexOf(i)<0){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis">·</span></td>'; continue; }
+          if(actSet.indexOf(i)<0){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis" aria-hidden="true">·</span></td>'; continue; }
           const on = getCell(key,a.id,i);
+          const cellLbl = esc(actLabel(a.id))+', '+DAYS_LONG[i]+' '+dates[i].d.getDate();
           html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" '+
                   (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
+                  'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+cellLbl+'" '+
                   'data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
         }
       }
@@ -464,18 +512,38 @@ function renderWeek(){
 }
 
 /* ===================== Storico ===================== */
-function lastMondays(n){ const base=getMonday(new Date()); const arr=[]; for(let i=n-1;i>=0;i--) arr.push(addDays(base,-7*i)); return arr; }
+let historyOffset = 0;  // 0 = settimane recenti; -1 = 1 settimana indietro, ecc.
+function lastMondaysOffset(n, offset){
+  // offset = 0: finestra che termina questa settimana; offset = -1: termina 1 sett. fa
+  const base = addDays(getMonday(new Date()), (offset)*7);
+  const arr = [];
+  for(let i=n-1;i>=0;i--) arr.push(addDays(base,-7*i));
+  return arr;
+}
 
 function renderHistory(){
-  const weeks6 = lastMondays(6);
-  let chart = '<div class="hcard"><h3>📊 Ultime 6 settimane</h3><div class="chart">';
+  const isAtNow = historyOffset === 0;
+  const weeks6 = lastMondaysOffset(6, historyOffset);
+  const lastW  = weeks6[weeks6.length-1];
+  const firstW = weeks6[0];
+  const rangeLabel = firstW.getDate()+'/'+(firstW.getMonth()+1)+' – '+lastW.getDate()+'/'+(lastW.getMonth()+1);
+
+  // Barra di navigazione storico
+  let nav = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+  nav += '<button class="arrow" id="histPrev" aria-label="Settimane precedenti" style="flex:0 0 auto">‹</button>';
+  nav += '<div style="flex:1;text-align:center;font-weight:700;font-size:14px;">'+rangeLabel+'<br><small style="font-weight:500;color:var(--muted);font-size:11px;">'+firstW.getFullYear()+'</small></div>';
+  nav += '<button class="arrow" id="histNext" aria-label="Settimane successive" '+(isAtNow?'disabled style="opacity:.3;cursor:default;"':'')+' style="flex:0 0 auto">›</button>';
+  if(!isAtNow) nav += '<button class="today-btn" id="histToday" style="font-size:11px;height:36px;padding:0 10px;">Oggi</button>';
+  nav += '</div>';
+
+  let chart = '<div class="hcard"><h3>📊 Ultime 6 settimane</h3>'+nav+'<div class="chart">';
   weeks6.forEach(m=>{
     const p=weekRatio(m), h=Math.max(3,Math.round(p*100));
     chart += '<div class="col"><div class="colbar" style="height:'+h+'%;background:'+gradColor(p)+'"><span class="colpct">'+Math.round(p*100)+'</span></div><div class="collabel">'+m.getDate()+'/'+(m.getMonth()+1)+'</div></div>';
   });
   chart += '</div></div>';
 
-  const weeks8 = lastMondays(8);
+  const weeks8 = lastMondaysOffset(8, historyOffset);
   const hasAny = hasRealData(data);
   let heat = '<div class="hcard"><h3>🗓️ Heatmap (completamento settimanale)</h3>';
   if(!hasAny){
@@ -496,6 +564,13 @@ function renderHistory(){
     heat += '</tbody></table></div></div>';
   }
   document.getElementById("historyView").innerHTML = chart + heat;
+
+  // Event listener frecce storico
+  document.getElementById("histPrev").onclick = function(){ historyOffset--; renderHistory(); };
+  const nextBtn = document.getElementById("histNext");
+  if(nextBtn) nextBtn.onclick = function(){ if(historyOffset<0){ historyOffset++; renderHistory(); } };
+  const todayBtn2 = document.getElementById("histToday");
+  if(todayBtn2) todayBtn2.onclick = function(){ historyOffset=0; renderHistory(); };
 }
 
 /* ===================== Impostazioni ===================== */
@@ -604,10 +679,12 @@ document.getElementById("importFile").addEventListener("change", function(e){
     try{
       const incoming=JSON.parse(ev.target.result);
       if(typeof incoming!=="object"||incoming===null) throw new Error();
-      if(!confirm("Importare questo backup? I dati attuali verranno sostituiti.")) return;
-      data=incoming; if(!data._labels)data._labels={}; data._updatedAt=Date.now();
+      if(!confirm("Unire questo backup con i dati attuali?\nLe spunte di entrambi verranno mantenute (nessun dato recente viene perso).")) return;
+      data = mergeData(data, incoming);
+      if(!data._labels) data._labels={};
+      data._updatedAt = Date.now();
       saveLocal(); schedulePush(); render();
-      alert("Backup importato.");
+      alert("Backup unito ai dati attuali.");
     }catch(err){ alert("File non valido."); }
   };
   reader.readAsText(file); e.target.value="";
@@ -644,10 +721,19 @@ document.getElementById("syncBadge").onclick=()=>{ view="settings"; setTabs(); r
 document.getElementById("tabWeek").onclick=()=>{ view="week"; setTabs(); render(); };
 document.getElementById("tabHistory").onclick=()=>{ view="history"; setTabs(); render(); };
 document.getElementById("tabSettings").onclick=()=>{ view="settings"; setTabs(); render(); };
+document.getElementById("themeToggle").onclick=function(){
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const currentlyDark = saved === "dark" || (saved !== "light" && prefersDark);
+  localStorage.setItem(THEME_KEY, currentlyDark ? "light" : "dark");
+  applyTheme();
+};
 function setTabs(){
-  document.getElementById("tabWeek").classList.toggle("active", view==="week");
-  document.getElementById("tabHistory").classList.toggle("active", view==="history");
-  document.getElementById("tabSettings").classList.toggle("active", view==="settings");
+  ["tabWeek","tabHistory","tabSettings"].forEach(function(id){
+    const isActive = (id==="tabWeek" && view==="week") || (id==="tabHistory" && view==="history") || (id==="tabSettings" && view==="settings");
+    document.getElementById(id).classList.toggle("active", isActive);
+    document.getElementById(id).setAttribute("aria-selected", isActive ? "true" : "false");
+  });
 }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && pantryId) reconcile(); });
 
@@ -658,7 +744,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781466642" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781668324" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
@@ -669,6 +755,10 @@ async function checkUpdate(){
 render();
 if(pantryId) reconcile();
 checkUpdate();
+/* Registrazione Service Worker (solo su HTTPS — GitHub Pages) */
+if("serviceWorker" in navigator && location.protocol === "https:"){
+  navigator.serviceWorker.register("/cdf-tracker/sw.js").catch(function(){});
+}
 </script>
 </body>
 </html>
