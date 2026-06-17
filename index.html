@@ -165,6 +165,14 @@
   .rename-row .movebtn:disabled{opacity:.3;cursor:default;}
   .rename-row .movebtn:active:not(:disabled){background:var(--line);}
   .rename-sec{font-weight:800;font-size:13px;margin:12px 0 4px;}
+  /* Nuovi stili per la gestione sezioni/attività */
+  .rename-sec-wrap{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--line);}
+  .rename-sec-wrap:last-of-type{border-bottom:none;}
+  .rename-sec-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .rename-sec-header input{height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);}
+  .rename-row.hidden-act{opacity:.6;}
+  .add-act-form{display:flex;flex-direction:column;gap:0;margin-top:8px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--line);}
+  .add-act-form input[type=text]{width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);}
   .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
   .ol b{font-weight:800;}
   a.link{color:#2563eb;font-weight:700;text-decoration:none;}
@@ -205,12 +213,13 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781668645";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781670291";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
 function applyTheme(){
-  const saved = localStorage.getItem(THEME_KEY);
+  let saved = null;
+  try{ saved = localStorage.getItem(THEME_KEY); }catch(e){}
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const dark = saved === "dark" || (saved !== "light" && prefersDark);
   document.documentElement.classList.toggle("dark", dark);
@@ -264,8 +273,11 @@ const BASKET = "cdf";
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
-if(!data._labels) data._labels = {};
-if(!data._updatedAt) data._updatedAt = 0;
+if(!data._labels)           data._labels = {};
+if(!data._updatedAt)        data._updatedAt = 0;
+if(!data._sectionNames)     data._sectionNames = {};     // { secId: {name,emoji} }
+if(!data._customActivities) data._customActivities = {};  // { secId: [{id,name,...}] }
+if(!data._hiddenActivities) data._hiddenActivities = {};  // { actId: true }
 
 let pantryId = "";
 try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
@@ -319,8 +331,23 @@ function mergeData(local, remote){
     });
     if(Object.keys(merged).length) out[wk]=merged;
   });
-  out._labels = Object.assign({}, older._labels||{}, newer._labels||{}); // unione nomi
-  out._order  = newer._order || older._order || {};                      // ordine: vince il più recente
+  out._labels          = Object.assign({}, older._labels||{},          newer._labels||{});
+  out._sectionNames    = Object.assign({}, older._sectionNames||{},    newer._sectionNames||{});
+  // _customActivities: per ogni sezione, union degli array; l'attività con stesso id viene presa dal più recente
+  const allSecIds = new Set(Object.keys(older._customActivities||{}).concat(Object.keys(newer._customActivities||{})));
+  const mergedCustom = {};
+  allSecIds.forEach(sid=>{
+    const oActs = (older._customActivities||{})[sid]||[];
+    const nActs = (newer._customActivities||{})[sid]||[];
+    const byId = {};
+    oActs.forEach(a=>byId[a.id]=a);
+    nActs.forEach(a=>byId[a.id]=a); // newer sovrascrive
+    mergedCustom[sid] = Object.values(byId);
+  });
+  out._customActivities = mergedCustom;
+  // _hiddenActivities: union (se uno nasconde, nasconde)
+  out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
+  out._order  = newer._order || older._order || {};
   out._updatedAt = Math.max(local._updatedAt||0, remote._updatedAt||0);
   return out;
 }
@@ -352,7 +379,15 @@ async function reconcile(){
   if(remote==="ERR"){ setSync("error"); return; }
   const before = JSON.stringify(data);
   data = mergeData(data, remote);
-  if(!data._labels) data._labels={};
+  if(!data._labels)           data._labels={};
+  if(!data._sectionNames)     data._sectionNames={};
+  if(!data._customActivities) data._customActivities={};
+  if(!data._hiddenActivities) data._hiddenActivities={};
+  // Ricarica i DEFAULT_LABEL con le attività custom sincronizzate
+  for(const sec of SECTIONS){
+    const customs=(data._customActivities&&data._customActivities[sec.id])||[];
+    customs.forEach(a=>{ if(!DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
+  }
   if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
   if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush();  // allinea il cloud al merge
   else setSync("ok");
@@ -374,12 +409,28 @@ function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(
 /* ===================== Accesso ai dati ===================== */
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function actLabel(id){ return (data._labels && data._labels[id]) || DEFAULT_LABEL[id] || id; }
-function orderedActivities(sec){
+
+/* Restituisce {name, emoji} per una sezione (custom o default) */
+function sectionLabel(sec){
+  const ov = data._sectionNames && data._sectionNames[sec.id];
+  return { name: (ov && ov.name) || sec.name, emoji: (ov && ov.emoji) || sec.emoji };
+}
+
+/* Tutte le attività di una sezione: built-in + custom */
+function allActivities(sec){
+  const customs = (data._customActivities && data._customActivities[sec.id]) || [];
+  return sec.activities.concat(customs);
+}
+
+/* Attività ordinate; includeHidden=true per mostrare anche le nascoste (usato in settings) */
+function orderedActivities(sec, includeHidden){
   const ord = (data._order && data._order[sec.id]) || [];
-  const byId = {}; sec.activities.forEach(a=>byId[a.id]=a);
+  const all = allActivities(sec);
+  const byId = {}; all.forEach(a=>byId[a.id]=a);
+  const hidden = data._hiddenActivities || {};
   const out = [];
-  ord.forEach(id=>{ if(byId[id]){ out.push(byId[id]); delete byId[id]; } });
-  sec.activities.forEach(a=>{ if(byId[a.id]) out.push(a); });
+  ord.forEach(id=>{ if(byId[id] && (includeHidden || !hidden[id])){ out.push(byId[id]); delete byId[id]; } });
+  all.forEach(a=>{ if(byId[a.id] && (includeHidden || !hidden[a.id])) out.push(a); });
   return out;
 }
 
@@ -406,7 +457,7 @@ function actStats(monday, act){
 }
 function sectionStats(monday, section){
   let done=0,total=0;
-  for(const a of section.activities){ const s=actStats(monday,a); done+=s.done; total+=s.total; }
+  for(const a of orderedActivities(section)){ const s=actStats(monday,a); done+=s.done; total+=s.total; }
   return {done,total,ratio: total?done/total:0};
 }
 function weekRatio(monday){
@@ -418,7 +469,9 @@ function weekRatio(monday){
 function dayStats(monday, i){
   const key=fmtKey(monday); const date=weekDates(monday)[i];
   let done=0,total=0;
-  for(const sec of SECTIONS) for(const a of sec.activities){
+  const hidden = data._hiddenActivities || {};
+  for(const sec of SECTIONS) for(const a of allActivities(sec)){
+    if(hidden[a.id]) continue;
     if(a.weekly) continue;
     if(a.day!==undefined && a.day!==i) continue;
     if(a.odd && date.getDate()%2===0) continue;
@@ -458,9 +511,10 @@ function renderWeek(){
   SECTIONS.forEach(s=>{
     const st = sectionStats(viewMonday, s);
     const col = gradColor(st.ratio);
+    const sl = sectionLabel(s);
     html += '<section class="section">';
-    html += '<div class="sec-head"><span class="sec-emoji">'+s.emoji+'</span>'+
-            '<span class="sec-name">'+esc(s.name)+'</span>'+
+    html += '<div class="sec-head"><span class="sec-emoji">'+sl.emoji+'</span>'+
+            '<span class="sec-name">'+esc(sl.name)+'</span>'+
             '<span class="sec-pct" style="color:'+col+'">'+pctTxt(st.ratio)+'</span></div>';
     html += '<div class="bar"><i style="width:'+(st.ratio*100)+'%;background:'+col+'"></i></div>';
     html += '<table><thead><tr><th class="lbl">Attività</th>';
@@ -553,7 +607,8 @@ function renderHistory(){
     weeks8.forEach(m=>{ heat += '<th>'+m.getDate()+'/'+(m.getMonth()+1)+'</th>'; });
     heat += '</tr></thead><tbody>';
     SECTIONS.forEach(s=>{
-      heat += '<tr class="sub"><td class="lbl">'+s.emoji+' '+esc(s.name)+'</td><td colspan="'+weeks8.length+'"></td></tr>';
+      const sl2 = sectionLabel(s);
+      heat += '<tr class="sub"><td class="lbl">'+sl2.emoji+' '+esc(sl2.name)+'</td><td colspan="'+weeks8.length+'"></td></tr>';
       orderedActivities(s).forEach(a=>{
         heat += '<tr><td class="lbl">'+esc(actLabel(a.id))+'</td>';
         weeks8.forEach(m=>{ const st=actStats(m,a); const bg = st.done<=0 ? "var(--line)" : gradColor(st.ratio);
@@ -592,21 +647,61 @@ function renderSettings(){
   if(pantryId) h += '<button class="btn ghost" id="discSync">Disconnetti</button>';
   h += '</div><div id="syncMsg"></div></div>';
 
-  h += '<div class="hcard"><h3>✏️ Rinomina e riordina attività</h3>'+
-       '<p class="sub">Cambia i nomi e usa ▲▼ per spostare le voci su/giù. Si aggiorna ovunque.</p>';
+  h += '<div class="hcard"><h3>✏️ Gestisci sezioni e attività</h3>'+
+       '<p class="sub">Rinomina sezioni, emoji, aggiungi/nascondi attività. Usa ▲▼ per riordinare.</p>';
   SECTIONS.forEach(s=>{
-    const ordered = orderedActivities(s);
-    h += '<div class="rename-sec">'+s.emoji+' '+esc(s.name)+'</div><div class="rename-list">';
-    ordered.forEach((a,idx)=>{
-      h += '<div class="rename-row">'+
-           '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id])+'">'+
-           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+(idx>0?'':' disabled')+'>▲</button>'+
-           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="1"'+(idx<ordered.length-1?'':' disabled')+'>▼</button>'+
-           '</div>';
+    const sl = sectionLabel(s);
+    const allActs = orderedActivities(s, true); // include hidden
+    const hidden = data._hiddenActivities || {};
+    const customs = (data._customActivities && data._customActivities[s.id]) || [];
+    const customIds = new Set(customs.map(a=>a.id));
+    h += '<div class="rename-sec-wrap" data-secid="'+s.id+'">';
+    // Header sezione editabile
+    h += '<div class="rename-sec-header">';
+    h += '<input type="text" class="sec-emoji-inp" data-semoji="'+s.id+'" value="'+esc(sl.emoji)+'" maxlength="4" placeholder="📝" style="width:42px;text-align:center;font-size:18px;">';
+    h += '<input type="text" class="sec-name-inp" data-sname="'+s.id+'" value="'+esc(sl.name)+'" placeholder="'+esc(s.name)+'" style="flex:1;">';
+    h += '</div>';
+    // Lista attività
+    h += '<div class="rename-list">';
+    allActs.forEach((a,idx)=>{
+      const isHidden = !!hidden[a.id];
+      const isCustom = customIds.has(a.id);
+      const visibleActs = allActs.filter(x=>!hidden[x.id]);
+      const visIdx = visibleActs.indexOf(a);
+      const visLen = visibleActs.length;
+      h += '<div class="rename-row'+(isHidden?' hidden-act':'')+'">'+
+           '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id]||a.name)+'"'+(isHidden?' style="opacity:.4;"':'')+'>'+
+           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+((!isHidden && visIdx>0)?'':' disabled')+'>▲</button>'+
+           '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="1"'+((!isHidden && visIdx>=0 && visIdx<visLen-1)?'':' disabled')+'>▼</button>';
+      if(isCustom){
+        h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
+      } else {
+        h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+
+             (isHidden?'👁':'🙅')+'</button>';
+      }
+      h += '</div>';
     });
     h += '</div>';
+    // Form aggiungi attività
+    h += '<div class="add-act-wrap" id="addWrap_'+s.id+'">';
+    h += '<button class="btn ghost" data-addact="'+s.id+'" style="width:100%;margin-top:6px;font-size:12px;">️ Aggiungi attività</button>';
+    h += '<div class="add-act-form hidden" id="addForm_'+s.id+'">';
+    h += '<input type="text" id="addName_'+s.id+'" placeholder="Nome attività…" style="margin-bottom:6px;">';
+    h += '<select id="addType_'+s.id+'" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);margin-bottom:6px;">'+
+         '<option value="normal">Normale (7 caselle/settimana)</option>'+
+         '<option value="weekly">1×/settimana</option>'+
+         '<option value="odd">Giorni dispari del mese</option>'+
+         '<option value="day">Giorno fisso della settimana</option>'+
+         '</select>';
+    h += '<select id="addDay_'+s.id+'" class="hidden" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);margin-bottom:6px;">'+
+         '<option value="0">Lunedì</option><option value="1">Martedì</option><option value="2">Mercoledì</option>'+
+         '<option value="3">Giovedì</option><option value="4">Venerdì</option><option value="5">Sabato</option><option value="6">Domenica</option>'+
+         '</select>';
+    h += '<div class="row-btns"><button class="btn primary" data-addconfirm="'+s.id+'">Aggiungi</button><button class="btn ghost" data-addcancel="'+s.id+'">Annulla</button></div>';
+    h += '</div></div>';
+    h += '</div>'; // fine rename-sec-wrap
   });
-  h += '<div class="row-btns" style="margin-top:12px"><button class="btn primary" id="saveNames">Salva nomi</button><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';
+  h += '<div class="row-btns" style="margin-top:12px"><button class="btn primary" id="saveNames">Salva</button><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';on class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';
 
   h += '<div class="hcard"><h3>💾 Backup dati</h3>'+
        '<p class="sub">Scarica una copia o ripristina i dati da un file.</p>'+
@@ -620,6 +715,38 @@ function renderSettings(){
   document.getElementById("resetNames").onclick = onResetNames;
   document.getElementById("exportBtn").onclick = exportData;
   document.getElementById("importBtn").onclick = ()=>document.getElementById("importFile").click();
+  // Delegazione eventi per la sezione gestisci attività
+  // Il cambio tipo attività è gestito dai .onchange espliciti più in basso
+  document.querySelectorAll("[data-addact]").forEach(btn=>{
+    btn.onclick = function(){
+      const sid = this.dataset.addact;
+      document.getElementById("addForm_"+sid).classList.remove("hidden");
+      this.classList.add("hidden");
+    };
+  });
+  document.querySelectorAll("[data-addcancel]").forEach(btn=>{
+    btn.onclick = function(){
+      const sid = this.dataset.addcancel;
+      document.getElementById("addForm_"+sid).classList.add("hidden");
+      document.querySelector("[data-addact='"+sid+"']").classList.remove("hidden");
+    };
+  });
+  document.querySelectorAll("[data-addconfirm]").forEach(btn=>{
+    btn.onclick = function(){ addCustomActivity(this.dataset.addconfirm); };
+  });
+  document.querySelectorAll("[data-delact]").forEach(btn=>{
+    btn.onclick = function(){ deleteCustomActivity(this.dataset.delsec, this.dataset.delact); };
+  });
+  document.querySelectorAll("[data-hideact]").forEach(btn=>{
+    btn.onclick = function(){ collectNames(); toggleHideActivity(this.dataset.hideact); };
+  });
+  // Tipo attività — listener delegato sull'intera settings view
+  document.getElementById("settingsView").querySelectorAll("[id^='addType_']").forEach(sel=>{
+    sel.onchange = function(){
+      const sid = this.id.replace("addType_","");
+      document.getElementById("addDay_"+sid).classList.toggle("hidden", this.value!=="day");
+    };
+  });
 }
 function msg(id, text, kind){ document.getElementById(id).innerHTML = '<div class="status-msg '+kind+'">'+text+'</div>'; }
 
@@ -630,7 +757,11 @@ async function onSaveSync(){
   msg("syncMsg","Verifica in corso…","info"); setSync("saving");
   const remote = await pullRemote();
   if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
-  data = mergeData(data, remote); if(!data._labels) data._labels={};
+  data = mergeData(data, remote);
+  if(!data._labels)           data._labels={};
+  if(!data._sectionNames)     data._sectionNames={};
+  if(!data._customActivities) data._customActivities={};
+  if(!data._hiddenActivities) data._hiddenActivities={};
   saveLocal(); render(); doPush();
   msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
   setSync("ok");
@@ -643,23 +774,77 @@ function onDiscSync(){
 function collectNames(){
   document.querySelectorAll("#settingsView input[data-rid]").forEach(inp=>{
     const id=inp.getAttribute("data-rid"); const val=inp.value.trim();
-    if(val && val!==DEFAULT_LABEL[id]) data._labels[id]=val; else delete data._labels[id];
+    const defLabel = DEFAULT_LABEL[id] || (()=>{ for(const s of SECTIONS){ const c=(data._customActivities&&data._customActivities[s.id])||[]; const f=c.find(a=>a.id===id); if(f) return f.name; } return id; })();
+    if(val && val!==defLabel) data._labels[id]=val; else delete data._labels[id];
+  });
+  // Salva nomi e emoji delle sezioni
+  document.querySelectorAll("#settingsView input[data-sname]").forEach(inp=>{
+    const sid=inp.getAttribute("data-sname"); const val=inp.value.trim();
+    const sec=SECTIONS.find(s=>s.id===sid); if(!sec) return;
+    if(!data._sectionNames) data._sectionNames={};
+    if(!data._sectionNames[sid]) data._sectionNames[sid]={};
+    if(val && val!==sec.name) data._sectionNames[sid].name=val; else delete data._sectionNames[sid].name;
+  });
+  document.querySelectorAll("#settingsView input[data-semoji]").forEach(inp=>{
+    const sid=inp.getAttribute("data-semoji"); const val=inp.value.trim();
+    const sec=SECTIONS.find(s=>s.id===sid); if(!sec) return;
+    if(!data._sectionNames) data._sectionNames={};
+    if(!data._sectionNames[sid]) data._sectionNames[sid]={};
+    if(val && val!==sec.emoji) data._sectionNames[sid].emoji=val; else delete data._sectionNames[sid].emoji;
   });
 }
-function onSaveNames(){ collectNames(); data._updatedAt=Date.now(); schedulePush(); msg("nameMsg","✅ Nomi salvati.","ok"); }
+function onSaveNames(){
+  collectNames();
+  data._updatedAt=Date.now(); schedulePush(); msg("nameMsg","✅ Salvato.","ok");
+}
+function addCustomActivity(sid){
+  const nameEl = document.getElementById("addName_"+sid);
+  const typeEl = document.getElementById("addType_"+sid);
+  const dayEl  = document.getElementById("addDay_"+sid);
+  const name = nameEl ? nameEl.value.trim() : "";
+  if(!name){ alert("Inserisci un nome per l'attività."); return; }
+  const type = typeEl ? typeEl.value : "normal";
+  const actDef = { id: "cust_"+Date.now(), name };
+  if(type==="weekly") actDef.weekly=true;
+  else if(type==="odd") actDef.odd=true;
+  else if(type==="day") actDef.day=parseInt(dayEl.value,10);
+  if(!data._customActivities) data._customActivities={};
+  if(!data._customActivities[sid]) data._customActivities[sid]=[];
+  data._customActivities[sid].push(actDef);
+  DEFAULT_LABEL[actDef.id]=actDef.name;
+  data._updatedAt=Date.now(); schedulePush(); renderSettings();
+  msg("nameMsg","✅ Attività \u201c"+name+"\u201d aggiunta.","ok");
+}
+function deleteCustomActivity(sid, actId){
+  if(!confirm('Eliminare questa attività? Le spunte passate restano salvate.')) return;
+  if(!data._customActivities||!data._customActivities[sid]) return;
+  data._customActivities[sid]=data._customActivities[sid].filter(a=>a.id!==actId);
+  delete (data._labels||{})[actId];
+  data._updatedAt=Date.now(); schedulePush(); renderSettings();
+}
+function toggleHideActivity(actId){
+  if(!data._hiddenActivities) data._hiddenActivities={};
+  if(data._hiddenActivities[actId]) delete data._hiddenActivities[actId];
+  else data._hiddenActivities[actId]=true;
+  data._updatedAt=Date.now(); schedulePush(); renderSettings();
+}
 function moveActivity(sectionId, actId, dir){
   collectNames();
   const sec = SECTIONS.find(s=>s.id===sectionId); if(!sec) return;
-  const cur = orderedActivities(sec).map(a=>a.id);
-  const idx = cur.indexOf(actId), j = idx+dir;
-  if(idx<0 || j<0 || j>=cur.length) return;
-  const t=cur[idx]; cur[idx]=cur[j]; cur[j]=t;
-  data._order = data._order || {}; data._order[sectionId] = cur;
+  const visible = orderedActivities(sec).map(a=>a.id); // solo visibili
+  const idx = visible.indexOf(actId), j = idx+dir;
+  if(idx<0 || j<0 || j>=visible.length) return;
+  // ricostruisco l'ordine completo includendo le nascoste
+  const full = orderedActivities(sec, true).map(a=>a.id);
+  const fi = full.indexOf(actId), fj = full.indexOf(visible[j]);
+  if(fi<0||fj<0) return;
+  const t=full[fi]; full[fi]=full[fj]; full[fj]=t;
+  data._order = data._order || {}; data._order[sectionId] = full;
   data._updatedAt = Date.now(); schedulePush(); renderSettings();
 }
 function onResetNames(){
-  if(!confirm("Ripristinare tutti i nomi predefiniti?")) return;
-  data._labels={}; data._updatedAt=Date.now(); schedulePush(); renderSettings();
+  if(!confirm("Ripristinare tutti i nomi predefiniti? (nomi sezioni, attività built-in; le attività custom restano)")) return;
+  data._labels={}; data._sectionNames={}; data._updatedAt=Date.now(); schedulePush(); renderSettings();
   msg("nameMsg","Nomi ripristinati.","info");
 }
 
@@ -722,10 +907,11 @@ document.getElementById("tabWeek").onclick=()=>{ view="week"; setTabs(); render(
 document.getElementById("tabHistory").onclick=()=>{ view="history"; setTabs(); render(); };
 document.getElementById("tabSettings").onclick=()=>{ view="settings"; setTabs(); render(); };
 document.getElementById("themeToggle").onclick=function(){
-  const saved = localStorage.getItem(THEME_KEY);
+  let saved = null;
+  try{ saved = localStorage.getItem(THEME_KEY); }catch(e){}
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const currentlyDark = saved === "dark" || (saved !== "light" && prefersDark);
-  localStorage.setItem(THEME_KEY, currentlyDark ? "light" : "dark");
+  try{ localStorage.setItem(THEME_KEY, currentlyDark ? "light" : "dark"); }catch(e){}
   applyTheme();
 };
 function setTabs(){
@@ -744,7 +930,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781668645" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781670291" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
