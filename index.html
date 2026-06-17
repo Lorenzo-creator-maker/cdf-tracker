@@ -213,7 +213,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781670291";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781671032";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -701,7 +701,7 @@ function renderSettings(){
     h += '</div></div>';
     h += '</div>'; // fine rename-sec-wrap
   });
-  h += '<div class="row-btns" style="margin-top:12px"><button class="btn primary" id="saveNames">Salva</button><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';on class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';
+  h += '<div class="row-btns" style="margin-top:12px"><button class="btn primary" id="saveNames">Salva</button><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div>';
 
   h += '<div class="hcard"><h3>💾 Backup dati</h3>'+
        '<p class="sub">Scarica una copia o ripristina i dati da un file.</p>'+
@@ -930,7 +930,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781670291" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671032" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
