@@ -213,7 +213,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781671032";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781671448";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -327,7 +327,7 @@ function mergeData(local, remote){
       const a=(older[wk]||{})[actId], b=(newer[wk]||{})[actId];
       if(!a){ merged[actId]=b; }
       else if(!b){ merged[actId]=a; }
-      else{ merged[actId]=a.map(function(v,i){ return v||b[i]; }); } // OR cella per cella
+      else{ merged[actId]=b.slice(); } // LWW: l'array più recente sovrascrive, per permettere di togliere le spunte
     });
     if(Object.keys(merged).length) out[wk]=merged;
   });
@@ -930,7 +930,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671032" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671448" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
