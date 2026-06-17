@@ -105,7 +105,7 @@
     cursor:pointer;color:transparent;font-size:15px;font-weight:800;margin:0 auto;
     transition:transform .05s ease;}
   .cell:active{transform:scale(.88);}
-  .cell.on{color:#fff;}
+  .cell.on{background:#22c55e;border-color:#22c55e;color:#fff;}
   .celldis{width:30px;height:30px;border-radius:8px;border:1.5px dashed var(--line);
     background:var(--bg);display:inline-flex;align-items:center;justify-content:center;
     color:var(--muted);font-size:13px;margin:0 auto;}
@@ -213,7 +213,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781671917";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781672700";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -553,7 +553,6 @@ function renderWeek(){
 
     orderedActivities(s).forEach(a=>{
       const rs = actStats(viewMonday, a);
-      const cellCol = (a.weekly || a.day!==undefined) ? gradColor(rs.ratio) : col;
       let tag = a.weekly ? '<span class="tag">1×/sett</span>'
               : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>'
               : (a.odd ? '<span class="tag">gg dispari</span>' : ''));
@@ -563,7 +562,6 @@ function renderWeek(){
         const on = getCell(key,a.id,0);
         const lbl = esc(actLabel(a.id))+', settimana '+viewMonday.getDate()+'-'+addDays(viewMonday,6).getDate();
         html += '<td colspan="7"><div class="weekcell"><button class="cell'+(on?' on':'')+'" '+
-                (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
                 'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+lbl+'" '+
                 'data-act="'+a.id+'" data-day="0">✓</button><small>una volta a settimana</small></div></td>';
       } else {
@@ -574,7 +572,6 @@ function renderWeek(){
           const on = getCell(key,a.id,i);
           const cellLbl = esc(actLabel(a.id))+', '+DAYS_LONG[i]+' '+dates[i].d.getDate();
           html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" '+
-                  (on?'style="background:'+cellCol+';border-color:'+cellCol+'" ':'')+
                   'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+cellLbl+'" '+
                   'data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
         }
@@ -1004,7 +1001,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781671917" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781672700" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
