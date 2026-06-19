@@ -94,7 +94,7 @@
   thead th.todaycol, td.todaycol{background:var(--today);}
   thead th.todaycol{border-top:2px solid var(--todayLine);}
   tbody td{padding:3px 0;text-align:center;border-top:1px solid var(--line);}
-  tbody td.lbl{text-align:left;padding-left:14px;font-size:13px;font-weight:500;
+  tbody td.lbl{text-align:left;padding-left:0;font-size:13px;font-weight:500;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:1px;width:38%;}
   tbody td.rowpct{font-size:11px;font-weight:800;padding-right:10px;width:34px;}
   .tag{font-size:9px;color:var(--muted);font-weight:700;border:1px solid var(--line);
@@ -176,7 +176,7 @@
   .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
   .ol b{font-weight:800;}
   a.link{color:#2563eb;font-weight:700;text-decoration:none;}
-  a.exlink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted);}
+  a.exlink{display:block;color:inherit;text-decoration:none;padding:8px 0 8px 14px;}
   a.exlink:active{opacity:.55;}
   .hint{font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.4;}
 </style>
@@ -216,7 +216,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781889819";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781890336";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -569,7 +569,7 @@ function renderWeek(){
       let tag = a.weekly ? '<span class="tag">1×/sett</span>'
               : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>'
               : (a.odd ? '<span class="tag">gg dispari</span>' : ''));
-      html += '<tr><td class="lbl"><a class="exlink" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+esc(actLabel(a.id))+'">'+esc(actLabel(a.id))+'</a>'+tag+'</td>';
+      html += '<tr><td class="lbl"><a class="exlink" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+esc(actLabel(a.id))+'">'+esc(actLabel(a.id))+tag+'</a></td>';
 
       if(a.weekly){
         const on = getCell(key,a.id,0);
@@ -1014,7 +1014,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781889819" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781890336" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
