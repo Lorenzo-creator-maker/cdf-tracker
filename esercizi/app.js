@@ -701,6 +701,7 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
       notes:    notes.trim(),
       count:    initial?.count || 0,
       lastDone: initial?.lastDone || null,
+      timeLog:  initial?.timeLog  || [],
     });
   };
   const handleKey = (e) => { if (e.key === 'Enter' && e.ctrlKey) save(); };
