@@ -172,6 +172,11 @@
   .rename-sec-header input{height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);}
   .rename-row.hidden-act{opacity:.6;}
   .add-act-form{display:flex;flex-direction:column;gap:0;margin-top:8px;padding:10px;background:var(--bg);border-radius:10px;border:1px solid var(--line);}
+  .rename-wrap{display:flex;flex-direction:column;gap:2px;}
+  .act-type-row{display:flex;align-items:center;gap:6px;padding:2px 0 4px;}
+  .act-type-label{font-size:12px;color:var(--muted);white-space:nowrap;}
+  .act-type-select{flex:1;height:30px;border:1px solid var(--line);border-radius:8px;padding:0 8px;font-size:12px;background:var(--card);color:var(--ink);}
+  .act-day-select{height:30px;border:1px solid var(--line);border-radius:8px;padding:0 6px;font-size:12px;background:var(--card);color:var(--ink);}
   .add-act-form input[type=text]{width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);}
   .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
   .ol b{font-weight:800;}
@@ -216,7 +221,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781890336";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "__BUILD_TS__";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -304,6 +309,7 @@ if(!data._sectionNames)     data._sectionNames = {};     // { secId: {name,emoji
 if(!data._customActivities) data._customActivities = {};  // { secId: [{id,name,...}] }
 if(!data._hiddenActivities) data._hiddenActivities = {};  // { actId: true }
 if(!data._deletedActivities) data._deletedActivities = {}; // { actId: true } — eliminazione definitiva
+if(!data._activityTypes)    data._activityTypes = {};     // { actId: {type,day?} } — override tipo
 
 let pantryId = "";
 try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
@@ -376,6 +382,8 @@ function mergeData(local, remote){
   out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
   // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque
   out._deletedActivities = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
+  // _activityTypes: override tipo per attività (newer wins per chiave)
+  out._activityTypes = Object.assign({}, older._activityTypes||{}, newer._activityTypes||{});
   out._order  = newer._order || older._order || {};
   out._updatedAt = Math.max(local._updatedAt||0, remote._updatedAt||0);
   return out;
@@ -452,6 +460,18 @@ function allActivities(sec){
   return sec.activities.concat(customs);
 }
 
+/* Applica override tipo attività (data._activityTypes) a un'attività */
+function resolveActType(act){
+  const ov=(data._activityTypes||{})[act.id];
+  if(!ov) return act;
+  const b=Object.assign({},act);
+  delete b.weekly; delete b.odd; delete b.day;
+  if(ov.type==='weekly') b.weekly=true;
+  else if(ov.type==='odd') b.odd=true;
+  else if(ov.type==='day') b.day=ov.day;
+  return b;
+}
+
 /* Attività ordinate; includeHidden=true per mostrare anche le nascoste (usato in settings) */
 function orderedActivities(sec, includeHidden){
   const ord = (data._order && data._order[sec.id]) || [];
@@ -463,7 +483,7 @@ function orderedActivities(sec, includeHidden){
   // I deleted vengono esclusi SEMPRE (anche da includeHidden)
   ord.forEach(id=>{ if(byId[id] && !deleted[id] && (includeHidden || !hidden[id])){ out.push(byId[id]); delete byId[id]; } });
   all.forEach(a=>{ if(byId[a.id] && !deleted[a.id] && (includeHidden || !hidden[a.id])) out.push(a); });
-  return out;
+  return out.map(a=>resolveActType(a));
 }
 
 function getCell(key, actId, day){ const w=data[key]; if(!w) return false; const a=w[actId]; return !!(a && a[day]); }
@@ -504,9 +524,10 @@ function dayStats(monday, i){
   const hidden = data._hiddenActivities || {};
   for(const sec of SECTIONS) for(const a of allActivities(sec)){
     if(hidden[a.id]) continue;
-    if(a.weekly) continue;
-    if(a.day!==undefined && a.day!==i) continue;
-    if(a.odd && date.getDate()%2===0) continue;
+    const ra=resolveActType(a);
+    if(ra.weekly) continue;
+    if(ra.day!==undefined && ra.day!==i) continue;
+    if(ra.odd && date.getDate()%2===0) continue;
     total++; if(getCell(key,a.id,i)) done++;
   }
   return {done,total,ratio: total?done/total:0};
@@ -736,6 +757,10 @@ function renderSettings(){
       const visibleActs = allActs.filter(x=>!hidden[x.id]);
       const visIdx = visibleActs.indexOf(a);
       const visLen = visibleActs.length;
+      const curType = a.weekly?'weekly':(a.odd?'odd':(a.day!==undefined?'day':'normal'));
+      const curDay  = a.day!==undefined?a.day:0;
+      const dayNames=['Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato','Domenica'];
+      h += '<div class="rename-wrap">';
       h += '<div class="rename-row'+(isHidden?' hidden-act':'')+'">'+
            '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id]||a.name)+'"'+(isHidden?' style="opacity:.4;"':'')+'>'+
            '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+((!isHidden && visIdx>0)?'':' disabled')+'>▲</button>'+
@@ -746,6 +771,19 @@ function renderSettings(){
       } else {
         h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>';
       }
+      h += '</div>';
+      h += '<div class="act-type-row">'+
+           '<span class="act-type-label">Tipo:</span>'+
+           '<select class="act-type-select" data-typact="'+a.id+'">'+
+           '<option value="normal"'+(curType==='normal'?' selected':'')+'>Normale (7gg/sett)</option>'+
+           '<option value="weekly"'+(curType==='weekly'?' selected':'')+'>1×/settimana</option>'+
+           '<option value="odd"'+(curType==='odd'?' selected':'')+'>Giorni dispari del mese</option>'+
+           '<option value="day"'+(curType==='day'?' selected':'')+'>Giorno fisso</option>'+
+           '</select>'+
+           '<select class="act-day-select'+(curType!=='day'?' hidden':'')+'" data-typday="'+a.id+'">'+
+           dayNames.map((d,i)=>'<option value="'+i+'"'+(curDay===i?' selected':'')+'>'+d+'</option>').join('')+
+           '</select>'+
+           '</div>';
       h += '</div>';
     });
     h += '</div>';
@@ -810,11 +848,27 @@ function renderSettings(){
   document.querySelectorAll("[data-delbuiltin]").forEach(btn=>{
     btn.onclick = function(){ collectNames(); deleteBuiltinActivity(this.dataset.delbuiltin); };
   });
-  // Tipo attività — listener delegato sull'intera settings view
+  // Tipo attività (form aggiungi nuova)
   document.getElementById("settingsView").querySelectorAll("[id^='addType_']").forEach(sel=>{
     sel.onchange = function(){
       const sid = this.id.replace("addType_","");
       document.getElementById("addDay_"+sid).classList.toggle("hidden", this.value!=="day");
+    };
+  });
+  // Tipo attività — modifica attività esistente
+  document.getElementById("settingsView").querySelectorAll(".act-type-select").forEach(sel=>{
+    sel.onchange = function(){
+      const actId = this.dataset.typact;
+      const type  = this.value;
+      const dayEl = document.querySelector('.act-day-select[data-typday="'+actId+'"]');
+      if(dayEl) dayEl.classList.toggle("hidden", type!=="day");
+      setActivityType(actId, type, dayEl ? parseInt(dayEl.value,10) : 0);
+    };
+  });
+  document.getElementById("settingsView").querySelectorAll(".act-day-select").forEach(sel=>{
+    sel.onchange = function(){
+      const actId  = this.dataset.typday;
+      setActivityType(actId, "day", parseInt(this.value,10));
     };
   });
 }
@@ -906,6 +960,12 @@ function deleteBuiltinActivity(actId){
   // togli anche da hidden se era nascosta
   if(data._hiddenActivities) delete data._hiddenActivities[actId];
   data._updatedAt=Date.now(); schedulePush(); renderSettings();
+}
+function setActivityType(actId, type, day){
+  if(!data._activityTypes) data._activityTypes={};
+  if(type==='day') data._activityTypes[actId]={type,day:day||0};
+  else             data._activityTypes[actId]={type};
+  data._updatedAt=Date.now(); schedulePush();
 }
 function moveActivity(sectionId, actId, dir){
   collectNames();
@@ -1014,7 +1074,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781890336" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "__BUILD_TS__" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
