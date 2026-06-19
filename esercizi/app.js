@@ -11,6 +11,15 @@
 import { h, render, Fragment } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.22.0/hooks';
 
+/* Chart.js da CDN */
+const loadChart = async () => {
+  if (window.Chart) return window.Chart;
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  await new Promise(resolve => { script.onload = resolve; document.head.appendChild(script); });
+  return window.Chart;
+};
+
 /* ============================================================
    COSTANTI & HELPERS
    ============================================================ */
@@ -35,6 +44,12 @@ const freshness = (iso) => {
   if (d <= 3)  return { c: '#2f9e6f', label: `${d}g fa`, bg: '#e7f0ed' };
   if (d <= 7)  return { c: '#e0a91a', label: `${d}g fa`, bg: '#fef9e7' };
   return { c: '#d2552e', label: `${d}g fa`, bg: '#fdf0ec' };
+};
+const avgTime = (exercise) => {
+  const log = exercise.timeLog || [];
+  if (!log.length) return null;
+  const total = log.reduce((s, entry) => s + (entry.minutes || 0), 0);
+  return Math.round(total / log.length);
 };
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -294,6 +309,66 @@ function App() {
 }
 
 /* ============================================================
+   ACTIVITY TIME CHART — grafico a torta del tempo totale per attività (Home)
+   ============================================================ */
+function ActivityTimeChart({ activities }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    const data = activities
+      .map(a => {
+        const totalTime = (a.exercises || []).reduce((s, e) => {
+          const avg = avgTime(e);
+          return s + (avg || 0);
+        }, 0);
+        return { name: a.name, color: COLORS[a.color]?.dot || '#999', total: totalTime };
+      })
+      .filter(item => item.total > 0);
+
+    if (data.length === 0) return;
+
+    (async () => {
+      const Chart = await loadChart();
+      if (!Chart || !canvasRef.current) return;
+
+      if (chartRef.current) chartRef.current.destroy();
+
+      const ctx = canvasRef.current.getContext('2d');
+      chartRef.current = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: data.map(d => `${d.name} (${d.total}m)`),
+          datasets: [{
+            data: data.map(d => d.total),
+            backgroundColor: data.map(d => d.color),
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12, usePointStyle: true } },
+            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}m` } },
+          },
+        },
+      });
+    })();
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [activities]);
+
+  return h('div', { className: 'time-chart-container' },
+    h('p', { className: 'chart-title' }, '📊 Tempo per attività'),
+    h('canvas', { ref: canvasRef, id: 'activity-time-chart' })
+  );
+}
+
+/* ============================================================
    HOME — attività che hanno esercizi (arrivano dal CDF)
    ============================================================ */
 function Home({ store, synced, onOpen, onRemove }) {
@@ -327,25 +402,28 @@ function Home({ store, synced, onOpen, onRemove }) {
         : h('p', { className: 'header-sub' }, synced ? 'Sincronizzato col cloud' : 'Solo su questo dispositivo'),
     ),
 
-    h('div', { className: 'content' },
-      activities.length === 0 && h('div', { className: 'empty' },
-        h('div', { className: 'empty-icon' }, '🏋️'),
-        h('p', null,
-          'Nessun esercizio ancora.', h('br'),
-          'Apri il ', h('a', { href: '../', style: { color: '#2f9e6f', fontWeight: 600 } }, 'CDF Tracker'),
-          ' e tocca il nome di un’attività per aggiungere i suoi esercizi qui.'
+    h(‘div’, { className: ‘content’ },
+      activities.length === 0 && h(‘div’, { className: ‘empty’ },
+        h(‘div’, { className: ‘empty-icon’ }, ‘🏋️’),
+        h(‘p’, null,
+          ‘Nessun esercizio ancora.’, h(‘br’),
+          ‘Apri il ‘, h(‘a’, { href: ‘../’, style: { color: ‘#2f9e6f’, fontWeight: 600 } }, ‘CDF Tracker’),
+          ‘ e tocca il nome di un’attività per aggiungere i suoi esercizi qui.’
         )
       ),
 
-      activities.length > 0 && h('p', { className: 'home-hint' },
-        'Le attività arrivano dal CDF Tracker. Tocca un’attività per gestirne gli esercizi.'
+      activities.length > 0 && h(‘p’, { className: ‘home-hint’ },
+        ‘Le attività arrivano dal CDF Tracker. Tocca un’attività per gestirne gli esercizi.’
       ),
+
+      activities.length > 0 && h(ActivityTimeChart, { activities }),
 
       ...activities.map(a => {
         const c = COLORS[a.color] || COLORS.verde;
         const exs = a.exercises || [];
         const done = exs.reduce((s, e) => s + (e.count || 0), 0);
         const stale = exs.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
+        const totalAvgTime = exs.reduce((s, e) => { const avg = avgTime(e); return s + (avg || 0); }, 0);
         return h('div', { key: a.id, className: 'activity-card' },
           h('button', {
             id: `activity-${a.id}`,
@@ -358,6 +436,7 @@ function Home({ store, synced, onOpen, onRemove }) {
               h('div', { style: { display: 'flex', gap: '6px', marginTop: '5px', flexWrap: 'wrap' } },
                 h('span', { className: 'stat-pill' }, `${exs.length} esercizi`),
                 h('span', { className: 'stat-pill' }, `${done}× eseguiti`),
+                totalAvgTime > 0 && h('span', { className: 'stat-pill', style: { color: c.dot, background: c.soft } }, `⏱ ${totalAvgTime}m`),
                 stale > 0 && h('span', { className: 'stat-pill', style: { color: '#d2552e', background: '#fdf0ec' } }, `${stale} da ripassare`),
               ),
             ),
@@ -402,6 +481,18 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
     ));
     showToast('Esercizio segnato ✓');
   };
+  const saveTimeForActivity = (minutes) => {
+    const today = todayISO();
+    update(activity.exercises.map(e => {
+      const log = e.timeLog || [];
+      const today_entry = log.find(entry => entry.date === today);
+      const updated_log = today_entry
+        ? log.map(entry => entry.date === today ? { ...entry, minutes: entry.minutes + minutes } : entry)
+        : [...log, { date: today, minutes }];
+      return { ...e, timeLog: updated_log };
+    }));
+    showToast(`⏱ +${minutes} min registrati`);
+  };
   const undo = (id) => {
     update(activity.exercises.map(e =>
       e.id === id ? { ...e, count: Math.max(0, (e.count || 0) - 1) } : e
@@ -440,7 +531,8 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
       ),
     ),
 
-    h(Timer, { accent: c.dot, key: activity.id }),
+    h(Timer, { accent: c.dot, key: activity.id, onSaveTime: saveTimeForActivity }),
+    h(TimeChart, { exercises: activity.exercises, color: c.dot }),
 
     /* sort bar */
     h('div', { className: 'sort-bar' },
@@ -537,6 +629,7 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
         ex.notes && h('div', { className: 'exercise-notes' }, ex.notes),
         h('div', { className: 'exercise-stats' },
           h('span', null, `${ex.count || 0}× eseguito`),
+          avgTime(ex) && h('span', null, `⏱ ${avgTime(ex)}m`),
           h('span', {
             className: 'freshness-badge',
             style: { background: f.bg, color: f.c },
@@ -655,9 +748,70 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
 }
 
 /* ============================================================
+   TIME CHART — grafico a torta dei tempi per esercizio
+   ============================================================ */
+function TimeChart({ exercises, color }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+
+    const data = exercises
+      .map(ex => ({ name: ex.name, avg: avgTime(ex), color }))
+      .filter(item => item.avg !== null);
+
+    if (data.length === 0) return;
+
+    (async () => {
+      const Chart = await loadChart();
+      if (!Chart || !canvasRef.current) return;
+
+      if (chartRef.current) chartRef.current.destroy();
+
+      const colors = [
+        '#2f9e6f', '#178fb8', '#e07b1a', '#7c5cbf',
+        '#ec4899', '#f59e0b', '#10b981', '#6366f1',
+      ];
+
+      const ctx = canvasRef.current.getContext('2d');
+      chartRef.current = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: data.map(d => `${d.name} (${d.avg}m)`),
+          datasets: [{
+            data: data.map(d => d.avg),
+            backgroundColor: colors.slice(0, data.length),
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12, usePointStyle: true } },
+            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}m` } },
+          },
+        },
+      });
+    })();
+
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [exercises]);
+
+  const hasData = exercises.some(ex => avgTime(ex) !== null);
+  if (!hasData) return null;
+
+  return h('div', { className: 'time-chart-container' },
+    h('canvas', { ref: canvasRef, id: 'time-chart' })
+  );
+}
+
+/* ============================================================
    TIMER
    ============================================================ */
-function Timer({ accent }) {
+function Timer({ accent, onSaveTime }) {
   const [sec, setSec] = useState(0);
   const [running, setRunning] = useState(false);
   const ref = useRef(null);
@@ -675,24 +829,45 @@ function Timer({ accent }) {
     return `${m}:${s}`;
   };
 
+  const saveAndReset = () => {
+    const minutes = Math.round(sec / 60);
+    if (minutes > 0 && onSaveTime) {
+      onSaveTime(minutes);
+    }
+    setRunning(false);
+    setSec(0);
+  };
+
   return h('div', { className: 'timer' + (running ? ' timer-running' : '') },
     h(Icon, { d: icons.clock, size: 16, style: { color: running ? accent : '#a8a29e', flexShrink: 0 } }),
     h('span', { className: 'timer-display' }, fmt(sec)),
-    h('button', {
-      id: 'timer-toggle-btn',
-      className: 'timer-btn ripple',
-      style: { background: accent },
-      onClick: () => setRunning(r => !r),
-    },
-      h(Icon, { d: running ? icons.pause : icons.play, size: 13, color: '#fff' }),
-      running ? ' Pausa' : ' Avvia'
-    ),
-    h('button', {
-      id: 'timer-reset-btn',
-      className: 'timer-reset',
-      title: 'Azzera',
-      onClick: () => { setRunning(false); setSec(0); },
-    }, h(Icon, { d: icons.reset, size: 15 }))
+    h('div', { className: 'timer-actions' },
+      h('button', {
+        id: 'timer-toggle-btn',
+        className: 'timer-btn ripple',
+        style: { background: accent },
+        onClick: () => setRunning(r => !r),
+      },
+        h(Icon, { d: running ? icons.pause : icons.play, size: 13, color: '#fff' }),
+        running ? ' Pausa' : ' Avvia'
+      ),
+      sec > 0 && h('button', {
+        id: 'timer-save-btn',
+        className: 'timer-save',
+        style: { color: accent, borderColor: accent },
+        onClick: saveAndReset,
+        title: 'Salva tempo e azzera',
+      },
+        h(Icon, { d: icons.check, size: 13 }),
+        ' Salva'
+      ),
+      h('button', {
+        id: 'timer-reset-btn',
+        className: 'timer-reset',
+        title: 'Azzera',
+        onClick: () => { setRunning(false); setSec(0); },
+      }, h(Icon, { d: icons.reset, size: 15 }))
+    )
   );
 }
 
