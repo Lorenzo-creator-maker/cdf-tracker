@@ -176,6 +176,8 @@
   .ol{font-size:13px;line-height:1.6;color:var(--ink);padding-left:18px;margin:6px 0 12px;}
   .ol b{font-weight:800;}
   a.link{color:#2563eb;font-weight:700;text-decoration:none;}
+  a.exlink{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted);}
+  a.exlink:active{opacity:.55;}
   .hint{font-size:11px;color:var(--muted);text-align:center;margin-top:14px;line-height:1.4;}
 </style>
 </head>
@@ -187,6 +189,7 @@
       <div class="title-right">
         <span class="overall" id="overall"></span>
         <span class="sync" id="syncBadge"><span class="dot off" id="syncDot"></span><span id="syncTxt">Sync</span></span>
+        <a class="sync" id="libBtn" href="esercizi/" aria-label="Libreria esercizi" title="Libreria esercizi" style="text-decoration:none;">📚</a>
         <button class="sync" id="themeToggle" aria-label="Cambia tema" style="border:0;cursor:pointer;">🌙</button>
       </div>
     </div>
@@ -213,7 +216,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781672700";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781889819";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -269,6 +272,16 @@ const MONTHS = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov
 const STORAGE_KEY = "cdfTracker_v2";
 const PANTRY_KEY  = "cdfPantryId";
 const BASKET = "cdf";
+
+/* ===================== Ponte verso la Libreria Esercizi =====================
+   Le attività del CDF sono la "lista madre": dalla libreria non si creano,
+   si raggiungono via deep-link che porta nome + colore-sezione.            */
+const SECTION_COLOR = { fisica:"verde", autotrattamento:"ambra", lavoro:"blu", corsi:"viola" };
+function exHref(actId, secId){
+  return "esercizi/index.html#act="+encodeURIComponent(actId)+
+         "&name="+encodeURIComponent(actLabel(actId))+
+         "&color="+(SECTION_COLOR[secId]||"verde");
+}
 
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
@@ -556,7 +569,7 @@ function renderWeek(){
       let tag = a.weekly ? '<span class="tag">1×/sett</span>'
               : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>'
               : (a.odd ? '<span class="tag">gg dispari</span>' : ''));
-      html += '<tr><td class="lbl">'+esc(actLabel(a.id))+tag+'</td>';
+      html += '<tr><td class="lbl"><a class="exlink" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+esc(actLabel(a.id))+'">'+esc(actLabel(a.id))+'</a>'+tag+'</td>';
 
       if(a.weekly){
         const on = getCell(key,a.id,0);
@@ -727,10 +740,10 @@ function renderSettings(){
            '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id]||a.name)+'"'+(isHidden?' style="opacity:.4;"':'')+'>'+
            '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+((!isHidden && visIdx>0)?'':' disabled')+'>▲</button>'+
            '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="1"'+((!isHidden && visIdx>=0 && visIdx<visLen-1)?'':' disabled')+'>▼</button>';
+      h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>';
       if(isCustom){
         h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
       } else {
-        h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>';
         h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>';
       }
       h += '</div>';
@@ -1001,7 +1014,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781672700" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781889819" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
