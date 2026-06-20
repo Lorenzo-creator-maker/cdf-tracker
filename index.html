@@ -256,7 +256,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781947329";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781948057";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -281,7 +281,7 @@ applyTheme();
    - odd:true -> spuntabile solo nei giorni dispari del mese            */
 const SECTIONS = [
   { id:"fisica", name:"Fisica & Benessere", emoji:"🏃", activities:[
-    {id:"respiro",name:"Respiro"},{id:"schiena",name:"Schiena"},{id:"bagua",name:"Ba Gua"},
+    {id:"respiro",name:"Respiro"},{id:"esvoce",name:"Es Voce"},{id:"schiena",name:"Schiena"},{id:"bagua",name:"Ba Gua"},
     {id:"trapz",name:"Tra pz e altro"},{id:"cfg",name:"CFG"},{id:"esyoga",name:"Es Yoga"},
     {id:"kf",name:"KF"},{id:"occhi",name:"Occhi"},{id:"perin",name:"Perin"},
     {id:"collo",name:"Collo"},{id:"polsi",name:"Polsi"},{id:"allungamento",name:"Allungamento"},
@@ -353,6 +353,16 @@ function saveLocal(){
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
   catch(e){ alert("Impossibile salvare in locale. Esci dalla navigazione privata."); }
 }
+// Le attività hardcoded non possono essere eliminate definitivamente: ripristinale
+(()=>{
+  const BUILTIN_IDS = new Set();
+  SECTIONS.forEach(s=>s.activities.forEach(a=>BUILTIN_IDS.add(a.id)));
+  let changed = false;
+  BUILTIN_IDS.forEach(id=>{
+    if(data._deletedActivities && data._deletedActivities[id]){ delete data._deletedActivities[id]; changed=true; }
+  });
+  if(changed) saveLocal();
+})();
 
 /* ===================== Sincronizzazione (Pantry) ===================== */
 let syncState = pantryId ? "ok" : "off";
@@ -878,8 +888,6 @@ function renderSettings(){
       h += '<button class="movebtn" data-editact="'+a.id+'" title="Modifica tipo / visibilità" style="color:#2563eb;">✏️</button>';
       if(isCustom){
         h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
-      } else {
-        h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>';
       }
       h += '</div>';
       h += '<div class="act-type-row hidden" data-typerow="'+a.id+'">'+
@@ -1202,7 +1210,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781947329" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781948057" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
