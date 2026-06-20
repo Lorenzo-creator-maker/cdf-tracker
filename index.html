@@ -256,7 +256,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781948057";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781949152";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -427,6 +427,8 @@ function mergeData(local, remote){
   out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
   // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque
   out._deletedActivities = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
+  // Le attività built-in non sono eliminabili: strip dal risultato del merge
+  SECTIONS.forEach(s=>s.activities.forEach(a=>delete out._deletedActivities[a.id]));
   // _activityTypes: override tipo per attività (newer wins per chiave)
   out._activityTypes = Object.assign({}, older._activityTypes||{}, newer._activityTypes||{});
   out._order  = newer._order || older._order || {};
@@ -1210,7 +1212,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781948057" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781949152" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
