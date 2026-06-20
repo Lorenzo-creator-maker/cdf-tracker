@@ -736,7 +736,7 @@ function renderSettings(){
   h += '</div><div id="syncMsg"></div></div>';
 
   h += '<div class="hcard"><h3>✏️ Gestisci sezioni e attività</h3>'+
-       '<p class="sub">Rinomina sezioni, emoji, aggiungi/nascondi attività. Usa ▲▼ per riordinare.</p>';
+       '<p class="sub">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
   SECTIONS.forEach(s=>{
     const sl = sectionLabel(s);
     const allActs = orderedActivities(s, true); // include hidden
@@ -765,14 +765,14 @@ function renderSettings(){
            '<input type="text" data-rid="'+a.id+'" value="'+esc(actLabel(a.id))+'" placeholder="'+esc(DEFAULT_LABEL[a.id]||a.name)+'"'+(isHidden?' style="opacity:.4;"':'')+'>'+
            '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="-1"'+((!isHidden && visIdx>0)?'':' disabled')+'>▲</button>'+
            '<button class="movebtn" data-msec="'+s.id+'" data-mact="'+a.id+'" data-mdir="1"'+((!isHidden && visIdx>=0 && visIdx<visLen-1)?'':' disabled')+'>▼</button>';
-      h += '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>';
+      h += '<button class="movebtn" data-editact="'+a.id+'" title="Modifica tipo / visibilità" style="color:#2563eb;">✏️</button>';
       if(isCustom){
         h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
       } else {
         h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>';
       }
       h += '</div>';
-      h += '<div class="act-type-row">'+
+      h += '<div class="act-type-row hidden" data-typerow="'+a.id+'">'+
            '<span class="act-type-label">Tipo:</span>'+
            '<select class="act-type-select" data-typact="'+a.id+'">'+
            '<option value="normal"'+(curType==='normal'?' selected':'')+'>Normale (7gg/sett)</option>'+
@@ -783,6 +783,7 @@ function renderSettings(){
            '<select class="act-day-select'+(curType!=='day'?' hidden':'')+'" data-typday="'+a.id+'">'+
            dayNames.map((d,i)=>'<option value="'+i+'"'+(curDay===i?' selected':'')+'>'+d+'</option>').join('')+
            '</select>'+
+           '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>'+
            '</div>';
       h += '</div>';
     });
@@ -853,6 +854,13 @@ function renderSettings(){
     sel.onchange = function(){
       const sid = this.id.replace("addType_","");
       document.getElementById("addDay_"+sid).classList.toggle("hidden", this.value!=="day");
+    };
+  });
+  // Apri/chiudi barra di modifica per attività esistente
+  document.getElementById("settingsView").querySelectorAll("[data-editact]").forEach(btn=>{
+    btn.onclick = function(){
+      const row = document.querySelector('.act-type-row[data-typerow="'+this.dataset.editact+'"]');
+      if(row) row.classList.toggle("hidden");
     };
   });
   // Tipo attività — modifica attività esistente
