@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781955088";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781996858";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -448,6 +448,7 @@ async function doPush(){
     if(remote && remote!=="ERR"){
       const before = JSON.stringify(data);
       data = mergeData(data, remote);
+      repairData();   // mantieni puliti anche i dati riletti prima di riscrivere
       if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
     }
     const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
@@ -471,6 +472,7 @@ async function reconcile(){
   if(!data._customActivities) data._customActivities={};
   if(!data._hiddenActivities) data._hiddenActivities={};
   if(!data._deletedActivities) data._deletedActivities={};
+  repairData();   // togli fantasmi/doppioni anche da ciò che arriva dal cloud
   // Ricarica i DEFAULT_LABEL con le attività custom sincronizzate
   for(const sec of SECTIONS){
     const customs=(data._customActivities&&data._customActivities[sec.id])||[];
@@ -536,6 +538,71 @@ function orderedActivities(sec, includeHidden){
   return out.map(a=>resolveActType(a));
 }
 
+/* ===================== Pulizia dati attività custom =====================
+   Risolve due problemi che la sincronizzazione ripropone:
+   1) attività personalizzate senza nome (si vedono come "cust_..." fantasma);
+   2) doppioni con lo stesso nome nella stessa sezione (es. due "Qi gong").
+   Usa _deletedActivities (tombstone): così l'eliminazione sopravvive al
+   merge tra dispositivi e non "risorge". Le spunte dei doppioni vengono
+   unite nell'attività mantenuta, quindi non si perde nulla.                 */
+function effType(a){
+  const ov=(data._activityTypes||{})[a.id];
+  if(ov) return ov.type;
+  return a.weekly?'weekly':(a.odd?'odd':(a.day!==undefined?'day':'normal'));
+}
+function tombstoneActivity(id){
+  if(!data._deletedActivities) data._deletedActivities={};
+  data._deletedActivities[id]=true;
+  if(data._labels) delete data._labels[id];
+  if(data._activityTypes) delete data._activityTypes[id];
+  if(data._hiddenActivities) delete data._hiddenActivities[id];
+  if(data._order) Object.keys(data._order).forEach(sid=>{
+    data._order[sid]=(data._order[sid]||[]).filter(x=>x!==id);
+  });
+  Object.keys(data).forEach(wk=>{ if(!wk.startsWith("_") && data[wk]) delete data[wk][id]; });
+}
+function mergeChecks(fromId, toId){
+  Object.keys(data).forEach(wk=>{
+    if(wk.startsWith("_")) return;
+    const w=data[wk]; if(!w||!w[fromId]) return;
+    if(!w[toId]) w[toId]=w[fromId].slice();
+    else for(let i=0;i<7;i++) w[toId][i]=!!(w[toId][i]||w[fromId][i]);
+    delete w[fromId];
+  });
+}
+function repairData(){
+  if(!data._customActivities) return false;
+  const tomb=data._deletedActivities||{};
+  let changed=false;
+  Object.keys(data._customActivities).forEach(sid=>{
+    const list=data._customActivities[sid]||[];
+    const groups={}; const kept=[];
+    list.forEach(a=>{
+      if(!a || !a.id) return;                 // voce corrotta: scartala
+      if(tomb[a.id]) return;                  // già eliminata: non re-inserirla
+      const label=(data._labels&&data._labels[a.id])?String(data._labels[a.id]).trim():"";
+      const nm=(typeof a.name==="string")?a.name.trim():"";
+      const display=label||nm;
+      if(!display){ tombstoneActivity(a.id); changed=true; return; }   // fantasma "cust_..."
+      const k=display.toLowerCase();
+      (groups[k]=groups[k]||[]).push(a);
+    });
+    Object.keys(groups).forEach(k=>{
+      const g=groups[k];
+      const keeper=(g.length>1?(g.find(a=>effType(a)==='normal')||g[0]):g[0]);
+      g.forEach(a=>{
+        if(a===keeper){ kept.push(a); return; }
+        mergeChecks(a.id, keeper.id);          // non perdere le spunte del doppione
+        tombstoneActivity(a.id);
+        changed=true;
+      });
+    });
+    data._customActivities[sid]=kept;
+  });
+  if(changed) data._updatedAt=Date.now();
+  return changed;
+}
+
 function getCell(key, actId, day){ const w=data[key]; if(!w) return false; const a=w[actId]; return !!(a && a[day]); }
 function setCell(key, actId, day, val){
   if(!data[key]) data[key]={};
@@ -572,8 +639,9 @@ function dayStats(monday, i){
   const key=fmtKey(monday); const date=weekDates(monday)[i];
   let done=0,total=0;
   const hidden = data._hiddenActivities || {};
+  const deleted = data._deletedActivities || {};
   for(const sec of SECTIONS) for(const a of allActivities(sec)){
-    if(hidden[a.id]) continue;
+    if(hidden[a.id] || deleted[a.id]) continue;
     const ra=resolveActType(a);
     if(ra.weekly) continue;
     if(ra.day!==undefined && ra.day!==i) continue;
@@ -1075,7 +1143,11 @@ function deleteCustomActivity(sid, actId){
   if(!confirm('Eliminare questa attività? Le spunte passate restano salvate.')) return;
   if(!data._customActivities||!data._customActivities[sid]) return;
   data._customActivities[sid]=data._customActivities[sid].filter(a=>a.id!==actId);
+  if(!data._deletedActivities) data._deletedActivities={};
+  data._deletedActivities[actId]=true;        // tombstone: non risorge alla prossima sync
   delete (data._labels||{})[actId];
+  if(data._activityTypes) delete data._activityTypes[actId];
+  if(data._hiddenActivities) delete data._hiddenActivities[actId];
   data._updatedAt=Date.now(); schedulePush(); renderSettings();
 }
 function toggleHideActivity(actId){
@@ -1215,7 +1287,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781955088" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781996858" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
@@ -1223,6 +1295,7 @@ async function checkUpdate(){
 }
 
 /* ===================== Avvio ===================== */
+if(repairData()) saveLocal();   // pulizia fantasmi/doppioni custom all'apertura
 render();
 if(pantryId) reconcile();
 checkUpdate();
