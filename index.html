@@ -112,6 +112,39 @@
   .weekcell{display:flex;align-items:center;justify-content:center;gap:8px;}
   .weekcell small{color:var(--muted);font-size:11px;font-weight:700;}
 
+  /* ===== Vista Oggi ===== */
+  .todayhero{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:14px 16px;margin-bottom:12px;}
+  .todayhero .th-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .th-title{font-size:22px;font-weight:800;line-height:1.05;letter-spacing:-.02em;}
+  .th-date{font-size:13px;color:var(--muted);margin-top:3px;}
+  .th-pct{font-size:24px;font-weight:800;line-height:1;text-align:right;}
+  .th-frac{font-size:12px;color:var(--muted);font-weight:700;margin-top:4px;text-align:right;white-space:nowrap;}
+  .th-bar{height:7px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:12px;}
+  .th-bar > i{display:block;height:100%;border-radius:99px;transition:width .25s ease,background .25s ease;}
+  .tsec{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    border:1px solid var(--line);overflow:hidden;margin-bottom:12px;}
+  .tsec-head{padding:11px 14px 10px;}
+  .tsh-row{display:flex;align-items:center;gap:9px;}
+  .tsec-emoji{font-size:18px;line-height:1;}
+  .tsec-name{font-weight:700;font-size:15px;flex:1;}
+  .tsec-count{font-size:12px;color:var(--muted);font-weight:800;}
+  .tsec-bar{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:8px;}
+  .tsec-bar > i{display:block;height:100%;border-radius:99px;transition:width .25s ease,background .25s ease;}
+  .todayrow{display:flex;align-items:center;gap:10px;padding-right:14px;
+    border-top:1px solid var(--line);cursor:pointer;min-height:48px;}
+  .todayrow:active{background:var(--bg);}
+  .trlabel{flex:1;padding:13px 0 13px 14px;font-size:15px;font-weight:500;}
+  .todayrow.done .trlabel{color:var(--muted);}
+  .trcheck{width:28px;height:28px;border-radius:50%;border:1.8px solid var(--line);
+    background:var(--card);flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:transparent;font-size:15px;font-weight:800;transition:transform .06s ease;}
+  .todayrow:active .trcheck{transform:scale(.86);}
+  .todayrow.done .trcheck{background:#22c55e;border-color:#22c55e;color:#fff;}
+  .today-note{font-size:12px;color:var(--muted);line-height:1.5;padding:2px 6px 0;}
+  .today-empty{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
+    border:1px solid var(--line);padding:26px 16px;text-align:center;color:var(--muted);font-size:14px;}
+
   .daycard{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
     border:1px solid var(--line);padding:12px 14px;margin-bottom:12px;}
   .daycard h3{margin:0 0 10px;font-size:14px;}
@@ -205,13 +238,15 @@
       <button class="today-btn" id="todayBtn">Oggi</button>
     </div>
     <div class="tabs">
-      <button class="tab active" role="tab" aria-selected="true" data-view="week" id="tabWeek">📅 Settimana</button>
+      <button class="tab active" role="tab" aria-selected="true" data-view="today" id="tabToday">☀️ Oggi</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="week" id="tabWeek">📅 Settimana</button>
       <button class="tab" role="tab" aria-selected="false" data-view="history" id="tabHistory">📊 Storico</button>
       <button class="tab icon" role="tab" aria-selected="false" data-view="settings" id="tabSettings">⚙️</button>
     </div>
   </header>
 
-  <main id="weekView"></main>
+  <main id="todayView"></main>
+  <main id="weekView" class="hidden"></main>
   <main id="historyView" class="hidden"></main>
   <main id="settingsView" class="hidden"></main>
 
@@ -221,7 +256,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "__BUILD_TS__";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781947329";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -439,7 +474,7 @@ function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; 
 function weekDates(monday){ const a=[]; for(let i=0;i<7;i++) a.push(addDays(monday,i)); return a; }
 
 let viewMonday = getMonday(new Date());
-let view = "week";
+let view = "today";
 
 /* ===================== Colore rosso -> verde ===================== */
 function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(r*125)+",70%,45%)"; }
@@ -563,6 +598,81 @@ function renderHeader(){
   }
 
   paintSync();
+}
+
+/* ===================== Vista Oggi ===================== */
+const WEEKDAYS_LONG = ["lunedì","martedì","mercoledì","giovedì","venerdì","sabato","domenica"];
+const MONTHS_LONG = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
+function todayIndex(d){ return (d.getDay()+6)%7; }   // 0=Lun .. 6=Dom
+function appliesToday(act, ti, dateNum){
+  if(act.weekly) return true;                         // settimanale: visibile tutta la settimana
+  if(act.day!==undefined) return ti>=act.day;         // dal giorno previsto in poi (recuperabile un altro giorno, finché non spuntato)
+  if(act.odd) return dateNum%2===1;                   // solo date dispari
+  return true;                                        // giornaliera
+}
+function renderToday(){
+  const now = new Date();
+  const monday = getMonday(now);
+  const key = fmtKey(monday);
+  const ti = todayIndex(now);
+  const dateNum = now.getDate();
+
+  let totDone=0, totTot=0, totVisible=0, body="";
+
+  SECTIONS.forEach(s=>{
+    const acts = orderedActivities(s);
+    totVisible += acts.length;
+    const todays = acts.filter(a=>appliesToday(a, ti, dateNum));
+    if(todays.length===0) return;
+
+    let secDone=0, rows="";
+    todays.forEach(a=>{
+      const dayIdx = a.weekly ? 0 : (a.day!==undefined ? a.day : ti);
+      const on = getCell(key, a.id, dayIdx);
+      if(on) secDone++;
+      let tag = '';
+      if(a.weekly) tag = '<span class="tag">1×/sett</span>';
+      else if(a.day!==undefined) tag = '<span class="tag">'+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>';
+      const lbl = esc(actLabel(a.id));
+      rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
+              'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
+              '<span class="trlabel">'+lbl+tag+'</span>'+
+              '<span class="trcheck">✓</span></div>';
+    });
+    const secTot = todays.length, ratio = secTot? secDone/secTot : 0;
+    totDone += secDone; totTot += secTot;
+    const sl = sectionLabel(s);
+    body += '<section class="tsec"><div class="tsec-head"><div class="tsh-row">'+
+              '<span class="tsec-emoji">'+sl.emoji+'</span>'+
+              '<span class="tsec-name">'+esc(sl.name)+'</span>'+
+              '<span class="tsec-count">'+secDone+' / '+secTot+'</span></div>'+
+              '<div class="tsec-bar"><i style="width:'+(ratio*100)+'%;background:'+gradColor(ratio)+'"></i></div>'+
+            '</div>'+ rows +'</section>';
+  });
+
+  const ratio = totTot? totDone/totTot : 0;
+  const dateStr = WEEKDAYS_LONG[ti]+" "+dateNum+" "+MONTHS_LONG[now.getMonth()];
+  const hero = '<div class="todayhero"><div class="th-top">'+
+      '<div><div class="th-title">Oggi</div><div class="th-date">'+dateStr+'</div></div>'+
+      '<div><div class="th-pct" style="color:'+gradColor(ratio)+'">'+pctTxt(ratio)+'</div>'+
+      '<div class="th-frac">'+totDone+' / '+totTot+' fatte</div></div></div>'+
+      '<div class="th-bar"><i style="width:'+(ratio*100)+'%;background:'+gradColor(ratio)+'"></i></div></div>';
+
+  if(totTot===0){
+    document.getElementById("todayView").innerHTML = hero +
+      '<div class="today-empty">Nessuna attività in programma oggi.</div>';
+    return;
+  }
+  let note;
+  if(totDone===totTot){
+    note = '<div class="today-note">Tutto fatto per oggi 🎉</div>';
+  } else {
+    const hidden = Math.max(0, totVisible - totTot);
+    note = '<div class="today-note">'+
+      (hidden>0 ? hidden+' attività non in programma oggi · ' : '')+
+      'compaiono quando tocca a loro (giorni dispari, corsi degli altri giorni).</div>';
+  }
+  document.getElementById("todayView").innerHTML = hero + body + note;
 }
 
 /* ===================== Vista settimana ===================== */
@@ -1025,12 +1135,14 @@ document.getElementById("importFile").addEventListener("change", function(e){
 /* ===================== Render principale ===================== */
 function render(){
   renderHeader();
+  document.getElementById("todayView").classList.toggle("hidden", view!=="today");
   document.getElementById("weekView").classList.toggle("hidden", view!=="week");
   document.getElementById("historyView").classList.toggle("hidden", view!=="history");
   document.getElementById("settingsView").classList.toggle("hidden", view!=="settings");
   document.getElementById("footHint").innerHTML = (view==="settings") ? "" :
     "I dati sono salvati su questo dispositivo" + (pantryId? " e sincronizzati nel cloud." : ". Attiva la sincronizzazione in ⚙️ per condividerli tra Mac e iPhone.");
-  if(view==="week") renderWeek();
+  if(view==="today") renderToday();
+  else if(view==="week") renderWeek();
   else if(view==="history") renderHistory();
   else renderSettings();
 }
@@ -1039,6 +1151,13 @@ function render(){
 document.getElementById("weekView").addEventListener("click", function(e){
   const btn=e.target.closest(".cell"); if(!btn || !btn.dataset.act) return;
   const key=fmtKey(viewMonday), actId=btn.dataset.act, day=parseInt(btn.dataset.day,10);
+  setCell(key, actId, day, !getCell(key,actId,day));
+  render();
+});
+document.getElementById("todayView").addEventListener("click", function(e){
+  if(e.target.closest("a")) return;                  // lascia funzionare eventuali link
+  const row=e.target.closest(".todayrow"); if(!row || !row.dataset.act) return;
+  const key=fmtKey(getMonday(new Date())), actId=row.dataset.act, day=parseInt(row.dataset.day,10);
   setCell(key, actId, day, !getCell(key,actId,day));
   render();
 });
@@ -1055,6 +1174,7 @@ document.getElementById("prev").onclick=()=>{
 document.getElementById("next").onclick=()=>{ viewMonday=addDays(viewMonday,7); render(); };
 document.getElementById("todayBtn").onclick=()=>{ viewMonday=getMonday(new Date()); render(); };
 document.getElementById("syncBadge").onclick=()=>{ view="settings"; setTabs(); render(); };
+document.getElementById("tabToday").onclick=()=>{ view="today"; setTabs(); render(); };
 document.getElementById("tabWeek").onclick=()=>{ view="week"; setTabs(); render(); };
 document.getElementById("tabHistory").onclick=()=>{ view="history"; setTabs(); render(); };
 document.getElementById("tabSettings").onclick=()=>{ view="settings"; setTabs(); render(); };
@@ -1067,8 +1187,8 @@ document.getElementById("themeToggle").onclick=function(){
   applyTheme();
 };
 function setTabs(){
-  ["tabWeek","tabHistory","tabSettings"].forEach(function(id){
-    const isActive = (id==="tabWeek" && view==="week") || (id==="tabHistory" && view==="history") || (id==="tabSettings" && view==="settings");
+  ["tabToday","tabWeek","tabHistory","tabSettings"].forEach(function(id){
+    const isActive = (id==="tabToday" && view==="today") || (id==="tabWeek" && view==="week") || (id==="tabHistory" && view==="history") || (id==="tabSettings" && view==="settings");
     document.getElementById(id).classList.toggle("active", isActive);
     document.getElementById(id).setAttribute("aria-selected", isActive ? "true" : "false");
   });
@@ -1082,7 +1202,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "__BUILD_TS__" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781947329" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
