@@ -134,7 +134,10 @@
   .todayrow{display:flex;align-items:center;gap:10px;padding-right:14px;
     border-top:1px solid var(--line);cursor:pointer;min-height:48px;}
   .todayrow:active{background:var(--bg);}
-  .trlabel{flex:1;padding:13px 0 13px 14px;font-size:15px;font-weight:500;}
+  .trlabel{flex:1;align-self:stretch;display:flex;align-items:center;
+    padding:13px 0 13px 14px;font-size:15px;font-weight:500;
+    color:var(--ink);text-decoration:none;}
+  .trlabel:active{opacity:.5;}
   .todayrow.done .trlabel{color:var(--muted);}
   .trcheck{width:28px;height:28px;border-radius:50%;border:1.8px solid var(--line);
     background:var(--card);flex:0 0 auto;display:flex;align-items:center;justify-content:center;
@@ -256,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781949152";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1781955088";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -648,7 +651,7 @@ function renderToday(){
       const lbl = esc(actLabel(a.id));
       rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
               'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
-              '<span class="trlabel">'+lbl+tag+'</span>'+
+              '<a class="trlabel" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+lbl+'">'+lbl+tag+'</a>'+
               '<span class="trcheck">✓</span></div>';
     });
     const secTot = todays.length, ratio = secTot? secDone/secTot : 0;
@@ -1212,7 +1215,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781949152" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781955088" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
