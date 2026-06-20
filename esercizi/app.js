@@ -116,9 +116,13 @@ function mergeStores(a, b) {
     (y.exercises || []).forEach(e => {
       const p = byId[e.id];
       if (!p) { byId[e.id] = e; return; }
-      const eScore = [(e.count || 0), (e.lastDone || '')];
-      const pScore = [(p.count || 0), (p.lastDone || '')];
-      byId[e.id] = (eScore[0] > pScore[0] || (eScore[0] === pScore[0] && eScore[1] > pScore[1])) ? e : p;
+      const eScore = [(e.count || 0), (e.lastDone || ''), (e.priority ?? -1)];
+      const pScore = [(p.count || 0), (p.lastDone || ''), (p.priority ?? -1)];
+      byId[e.id] = (
+        eScore[0] > pScore[0] ||
+        (eScore[0] === pScore[0] && eScore[1] > pScore[1]) ||
+        (eScore[0] === pScore[0] && eScore[1] === pScore[1] && eScore[2] > pScore[2])
+      ) ? e : p;
     });
     const newer = aNewer ? x : y;
     out[id] = { name: newer.name || x.name || y.name, color: newer.color || x.color || y.color, exercises: Object.values(byId) };
@@ -222,7 +226,13 @@ function ConfirmDialog({ title, msg, onConfirm, onCancel }) {
 function App() {
   const [store, setStore] = useState(null);   // null = loading
   const [openId, setOpenId] = useState(null);
-  const [sortMode, setSortMode] = useState('manual');
+  const [sortMode, setSortModeRaw] = useState(() => {
+    try { return localStorage.getItem('exSortMode') || 'stale'; } catch { return 'stale'; }
+  });
+  const setSortMode = useCallback((m) => {
+    setSortModeRaw(m);
+    try { localStorage.setItem('exSortMode', m); } catch {}
+  }, []);
   const [synced, setSynced] = useState(!!getPantryId());
   const pushTimer = useRef(null);
 
@@ -402,18 +412,18 @@ function Home({ store, synced, onOpen, onRemove }) {
         : h('p', { className: 'header-sub' }, synced ? 'Sincronizzato col cloud' : 'Solo su questo dispositivo'),
     ),
 
-    h(‘div’, { className: ‘content’ },
-      activities.length === 0 && h(‘div’, { className: ‘empty’ },
-        h(‘div’, { className: ‘empty-icon’ }, ‘🏋️’),
-        h(‘p’, null,
-          ‘Nessun esercizio ancora.’, h(‘br’),
-          ‘Apri il ‘, h(‘a’, { href: ‘../’, style: { color: ‘#2f9e6f’, fontWeight: 600 } }, ‘CDF Tracker’),
-          ‘ e tocca il nome di un’attività per aggiungere i suoi esercizi qui.’
+    h('div', { className: 'content' },
+      activities.length === 0 && h('div', { className: 'empty' },
+        h('div', { className: 'empty-icon' }, '🏋️'),
+        h('p', null,
+          'Nessun esercizio ancora.', h('br'),
+          'Apri il ', h('a', { href: '../', style: { color: '#2f9e6f', fontWeight: 600 } }, 'CDF Tracker'),
+          ' e tocca il nome di un’attività per aggiungere i suoi esercizi qui.'
         )
       ),
 
-      activities.length > 0 && h(‘p’, { className: ‘home-hint’ },
-        ‘Le attività arrivano dal CDF Tracker. Tocca un’attività per gestirne gli esercizi.’
+      activities.length > 0 && h('p', { className: 'home-hint' },
+        'Le attività arrivano dal CDF Tracker. Tocca un’attività per gestirne gli esercizi.'
       ),
 
       activities.length > 0 && h(ActivityTimeChart, { activities }),
@@ -471,9 +481,12 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
 
   const update = (exercises) => onChange({ ...activity, exercises });
 
+  const staleKey = (e) => (daysSince(e.lastDone) ?? 1e9);
+  const prioKey  = (e) => (typeof e.priority === 'number' ? e.priority : -Infinity);
   const sorted = [...activity.exercises];
-  if (sortMode === 'most')  sorted.sort((a, b) => (b.count || 0) - (a.count || 0));
-  if (sortMode === 'stale') sorted.sort((a, b) => (daysSince(b.lastDone) ?? 1e9) - (daysSince(a.lastDone) ?? 1e9));
+  if (sortMode === 'most')          sorted.sort((a, b) => (b.count || 0) - (a.count || 0));
+  else if (sortMode === 'stale')    sorted.sort((a, b) => staleKey(b) - staleKey(a));
+  else if (sortMode === 'priority') sorted.sort((a, b) => (prioKey(b) - prioKey(a)) || (staleKey(b) - staleKey(a)));
 
   const markDone = (id) => {
     update(activity.exercises.map(e =>
@@ -537,7 +550,7 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
     /* sort bar */
     h('div', { className: 'sort-bar' },
       h(Icon, { d: icons.sort, size: 14, style: { color: '#a8a29e', flexShrink: 0 } }),
-      [['manual', 'Mio ordine'], ['most', 'Più fatti'], ['stale', 'Da ripassare']].map(([k, label]) =>
+      [['stale', 'Da ripassare'], ['priority', 'Priorità'], ['most', 'Più fatti'], ['manual', 'Mio ordine']].map(([k, label]) =>
         h('button', {
           key: k,
           className: 'sort-pill' + (sortMode === k ? ' active' : ''),
@@ -630,6 +643,10 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
         h('div', { className: 'exercise-stats' },
           h('span', null, `${ex.count || 0}× eseguito`),
           avgTime(ex) && h('span', null, `⏱ ${avgTime(ex)}m`),
+          (typeof ex.priority === 'number') && h('span', {
+            className: 'freshness-badge',
+            style: { background: accent.soft, color: accent.dot },
+          }, `priorità ${ex.priority}`),
           h('span', {
             className: 'freshness-badge',
             style: { background: f.bg, color: f.c },
@@ -691,9 +708,12 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
   const [name, setName] = useState(initial?.name || '');
   const [videoUrl, setVideoUrl] = useState(initial?.videoUrl || '');
   const [notes, setNotes] = useState(initial?.notes || '');
+  const [priority, setPriority] = useState(initial?.priority != null ? String(initial.priority) : '');
 
   const save = () => {
     if (!name.trim()) return;
+    const prRaw = priority.trim();
+    const prNum = prRaw === '' ? null : parseInt(prRaw, 10);
     onSave({
       id:       initial?.id || uid(),
       name:     name.trim(),
@@ -702,6 +722,7 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
       count:    initial?.count || 0,
       lastDone: initial?.lastDone || null,
       timeLog:  initial?.timeLog  || [],
+      priority: Number.isFinite(prNum) ? prNum : null,
     });
   };
   const handleKey = (e) => { if (e.key === 'Enter' && e.ctrlKey) save(); };
@@ -733,6 +754,16 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
         value: notes,
         placeholder: 'Note: serie / ripetizioni (opzionale)',
         onInput: e => setNotes(e.target.value),
+        onKeyDown: handleKey,
+      }),
+      h('input', {
+        id: initial ? `edit-exercise-priority-${initial.id}` : 'new-exercise-priority',
+        className: 'form-input',
+        type: 'number',
+        inputMode: 'numeric',
+        value: priority,
+        placeholder: 'Priorità: numero più alto = più in alto (opzionale)',
+        onInput: e => setPriority(e.target.value),
         onKeyDown: handleKey,
       }),
       h('p', { style: { fontSize: '11px', color: '#a8a29e' } }, 'Ctrl+Enter per salvare'),
