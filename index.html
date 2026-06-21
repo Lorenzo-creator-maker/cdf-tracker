@@ -929,7 +929,7 @@ function renderSettings(){
   h += '</div><div id="syncMsg"></div></div>';
 
   h += '<div class="hcard"><h3>✏️ Gestisci sezioni e attività</h3>'+
-       '<p class="sub">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
+       '<p class="sub">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo, nascondere o eliminare un\'attività.</p>';
   SECTIONS.forEach(s=>{
     const sl = sectionLabel(s);
     const allActs = orderedActivities(s, true); // include hidden
@@ -975,6 +975,7 @@ function renderSettings(){
            dayNames.map((d,i)=>'<option value="'+i+'"'+(curDay===i?' selected':'')+'>'+d+'</option>').join('')+
            '</select>'+
            '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>'+
+           (!isCustom ? '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>' : '')+
            '</div>';
       h += '</div>';
     });
