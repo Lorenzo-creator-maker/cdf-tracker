@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1781996858";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1782042691";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -356,16 +356,6 @@ function saveLocal(){
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
   catch(e){ alert("Impossibile salvare in locale. Esci dalla navigazione privata."); }
 }
-// Le attività hardcoded non possono essere eliminate definitivamente: ripristinale
-(()=>{
-  const BUILTIN_IDS = new Set();
-  SECTIONS.forEach(s=>s.activities.forEach(a=>BUILTIN_IDS.add(a.id)));
-  let changed = false;
-  BUILTIN_IDS.forEach(id=>{
-    if(data._deletedActivities && data._deletedActivities[id]){ delete data._deletedActivities[id]; changed=true; }
-  });
-  if(changed) saveLocal();
-})();
 
 /* ===================== Sincronizzazione (Pantry) ===================== */
 let syncState = pantryId ? "ok" : "off";
@@ -412,8 +402,17 @@ function mergeData(local, remote){
     });
     if(Object.keys(merged).length) out[wk]=merged;
   });
-  out._labels          = Object.assign({}, older._labels||{},          newer._labels||{});
-  out._sectionNames    = Object.assign({}, older._sectionNames||{},    newer._sectionNames||{});
+  // _labels / _sectionNames: un valore non-vuoto vince sempre su vuoto/assente (evita
+  // che un dispositivo senza etichette sovrascriva quelle impostate sull'altro).
+  // Solo quando entrambi hanno un valore non-vuoto vince il "più recente" (LWW normale).
+  function mergeLabels(o, n){
+    const keys = new Set(Object.keys(o||{}).concat(Object.keys(n||{})));
+    const out2 = {};
+    keys.forEach(k=>{ const ov=(o||{})[k], nv=(n||{})[k]; if(nv) out2[k]=nv; else if(ov) out2[k]=ov; });
+    return out2;
+  }
+  out._labels       = mergeLabels(older._labels,       newer._labels);
+  out._sectionNames = mergeLabels(older._sectionNames, newer._sectionNames);
   // _customActivities: per ogni sezione, union degli array; l'attività con stesso id viene presa dal più recente
   const allSecIds = new Set(Object.keys(older._customActivities||{}).concat(Object.keys(newer._customActivities||{})));
   const mergedCustom = {};
@@ -430,8 +429,6 @@ function mergeData(local, remote){
   out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
   // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque
   out._deletedActivities = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
-  // Le attività built-in non sono eliminabili: strip dal risultato del merge
-  SECTIONS.forEach(s=>s.activities.forEach(a=>delete out._deletedActivities[a.id]));
   // _activityTypes: override tipo per attività (newer wins per chiave)
   out._activityTypes = Object.assign({}, older._activityTypes||{}, newer._activityTypes||{});
   out._order  = newer._order || older._order || {};
@@ -583,7 +580,10 @@ function repairData(){
       const label=(data._labels&&data._labels[a.id])?String(data._labels[a.id]).trim():"";
       const nm=(typeof a.name==="string")?a.name.trim():"";
       const display=label||nm;
-      if(!display){ tombstoneActivity(a.id); changed=true; return; }   // fantasma "cust_..."
+      // Fantasma se: nessun nome, OPPURE il "nome" è in realtà l'id grezzo
+      // (es. "cust_1782021091180" — niente nome reale, va eliminato).
+      const looksLikeRawId = !display || display===a.id || /^cust_\d+$/i.test(display);
+      if(looksLikeRawId){ tombstoneActivity(a.id); changed=true; return; }
       const k=display.toLowerCase();
       (groups[k]=groups[k]||[]).push(a);
     });
@@ -929,7 +929,7 @@ function renderSettings(){
   h += '</div><div id="syncMsg"></div></div>';
 
   h += '<div class="hcard"><h3>✏️ Gestisci sezioni e attività</h3>'+
-       '<p class="sub">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo, nascondere o eliminare un\'attività.</p>';
+       '<p class="sub">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
   SECTIONS.forEach(s=>{
     const sl = sectionLabel(s);
     const allActs = orderedActivities(s, true); // include hidden
@@ -961,6 +961,8 @@ function renderSettings(){
       h += '<button class="movebtn" data-editact="'+a.id+'" title="Modifica tipo / visibilità" style="color:#2563eb;">✏️</button>';
       if(isCustom){
         h += '<button class="movebtn" data-delact="'+a.id+'" data-delsec="'+s.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
+      } else {
+        h += '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina attività" style="color:#ef4444;">🗑</button>';
       }
       h += '</div>';
       h += '<div class="act-type-row hidden" data-typerow="'+a.id+'">'+
@@ -975,7 +977,6 @@ function renderSettings(){
            dayNames.map((d,i)=>'<option value="'+i+'"'+(curDay===i?' selected':'')+'>'+d+'</option>').join('')+
            '</select>'+
            '<button class="movebtn" data-hideact="'+a.id+'" title="'+(isHidden?'Mostra':'Nascondi')+'" style="'+(isHidden?'color:#22c55e':'color:#f59e0b')+'">'+(isHidden?'👁':'🙅')+'</button>'+
-           (!isCustom ? '<button class="movebtn" data-delbuiltin="'+a.id+'" title="Elimina definitivamente" style="color:#ef4444;">🗑</button>' : '')+
            '</div>';
       h += '</div>';
     });
@@ -1288,7 +1289,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1781996858" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782042691" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
