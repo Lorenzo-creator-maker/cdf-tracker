@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1782045759";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1782046762";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -499,7 +499,24 @@ function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(
 
 /* ===================== Accesso ai dati ===================== */
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function actLabel(id){ return (data._labels && data._labels[id]) || DEFAULT_LABEL[id] || id; }
+function actLabel(id){
+  if(data._labels && data._labels[id]) return data._labels[id];
+  if(DEFAULT_LABEL[id]) return DEFAULT_LABEL[id];
+  // Fallback: nome proprio dell'attività custom. Copre il PRIMO render all'avvio,
+  // prima che reconcile() popoli DEFAULT_LABEL — altrimenti in "Oggi" si vedeva
+  // l'id grezzo "cust_…" al posto del nome (es. Qi gong / Tai chi). Memorizza in
+  // DEFAULT_LABEL così le chiamate successive sono immediate.
+  if(data._customActivities){
+    for(const sid in data._customActivities){
+      const list = data._customActivities[sid] || [];
+      for(let i=0;i<list.length;i++){
+        const a = list[i];
+        if(a && a.id===id && a.name){ DEFAULT_LABEL[id]=a.name; return a.name; }
+      }
+    }
+  }
+  return id;
+}
 
 /* Restituisce {name, emoji} per una sezione (custom o default) */
 function sectionLabel(sec){
@@ -1293,7 +1310,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782045759" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782046762" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
@@ -1302,6 +1319,12 @@ async function checkUpdate(){
 
 /* ===================== Avvio ===================== */
 if(repairData()) saveLocal();   // pulizia fantasmi/doppioni custom all'apertura
+// Popola subito DEFAULT_LABEL con i nomi delle custom GIÀ salvate, così il primo
+// render di "Oggi" mostra i nomi e non gli id "cust_…" (reconcile lo rifà dopo dalla sync).
+for(const sec of SECTIONS){
+  const cs=(data._customActivities&&data._customActivities[sec.id])||[];
+  cs.forEach(a=>{ if(a && a.id && a.name && !DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
+}
 render();
 if(pantryId) reconcile();
 checkUpdate();
