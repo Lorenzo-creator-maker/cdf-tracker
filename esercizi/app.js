@@ -98,22 +98,42 @@ async function pushRemote(store) {
   } catch (e) { return false; }
 }
 
+/* Tombstoni (come nel CDF Tracker): _deleted = { actId: ms } board eliminate,
+   _deletedEx = { exId: ms } esercizi eliminati. Vengono uniti PRIMA del resto
+   (vince il ms più recente) e sono AUTOREVOLI al merge: un id tombstonato non può
+   rientrare nello store, da qualunque dispositivo/copia cloud provenga. Senza questo,
+   il read-merge-write in persist() faceva risorgere ogni elemento appena cancellato. */
+function mergeTomb(a, b) {
+  const out = { ...(a || {}) };
+  Object.keys(b || {}).forEach(id => { out[id] = Math.max(out[id] || 0, b[id] || 0); });
+  return out;
+}
+function stripDeletedEx(entry, delEx) {
+  if (!entry || !entry.exercises) return entry;
+  return { ...entry, exercises: entry.exercises.filter(e => !delEx[e.id]) };
+}
+
 /* Unione non distruttiva di due store: union delle attività e degli esercizi (per id);
-   sui conflitti vince l'esercizio con conteggio più alto / lastDone più recente.
-   name/color vengono dal lato con _updatedAt più recente. */
+   sui conflitti vince l'esercizio con conteggio più alto / lastDone più recente / priorità.
+   name/color vengono dal lato con _updatedAt più recente.
+   I tombstoni (_deleted / _deletedEx) escludono board ed esercizi eliminati. */
 function mergeStores(a, b) {
   if (!a) return b || {};
   if (!b) return a || {};
+  const delAct = mergeTomb(a._deleted, b._deleted);
+  const delEx  = mergeTomb(a._deletedEx, b._deletedEx);
   const out = {};
   const ids = new Set(Object.keys(a).concat(Object.keys(b)).filter(k => !isMeta(k)));
   const aNewer = (a._updatedAt || 0) >= (b._updatedAt || 0);
   ids.forEach(id => {
+    if (delAct[id]) return;                        // board eliminata: non risorge
     const x = a[id], y = b[id];
-    if (!x) { out[id] = y; return; }
-    if (!y) { out[id] = x; return; }
+    if (!x) { out[id] = stripDeletedEx(y, delEx); return; }
+    if (!y) { out[id] = stripDeletedEx(x, delEx); return; }
     const byId = {};
-    (x.exercises || []).forEach(e => { byId[e.id] = e; });
+    (x.exercises || []).forEach(e => { if (!delEx[e.id]) byId[e.id] = e; });
     (y.exercises || []).forEach(e => {
+      if (delEx[e.id]) return;                      // esercizio eliminato: non risorge
       const p = byId[e.id];
       if (!p) { byId[e.id] = e; return; }
       const eScore = [(e.count || 0), (e.lastDone || ''), (e.priority ?? -1)];
@@ -128,6 +148,8 @@ function mergeStores(a, b) {
     out[id] = { name: newer.name || x.name || y.name, color: newer.color || x.color || y.color, exercises: Object.values(byId) };
   });
   out._updatedAt = Math.max(a._updatedAt || 0, b._updatedAt || 0);
+  if (Object.keys(delAct).length) out._deleted   = delAct;
+  if (Object.keys(delEx).length)  out._deletedEx = delEx;
   return out;
 }
 
@@ -150,6 +172,11 @@ function ensureEntry(store, seed) {
   const s = { ...store };
   const prev = s[seed.id];
   s[seed.id] = { name: seed.name, color: seed.color, exercises: (prev && prev.exercises) || [] };
+  // Riapertura esplicita dal deep-link del CDF: togli un eventuale tombstone della board
+  // (l'utente la sta intenzionalmente riusando, quindi non deve restare cancellata).
+  if (s._deleted && s._deleted[seed.id]) {
+    const d = { ...s._deleted }; delete d[seed.id]; s._deleted = d;
+  }
   return s;
 }
 
@@ -298,6 +325,15 @@ function App() {
   const removeActivity = (id) => {
     const ns = { ...store };
     delete ns[id];
+    ns._deleted = { ...(ns._deleted || {}), [id]: Date.now() };   // tombstone: non risorge alla sync
+    persist(ns);
+  };
+  // Elimina un singolo esercizio da una board e ne registra il tombstone.
+  const removeExercise = (actId, exId) => {
+    const ns = { ...store };
+    const act = ns[actId];
+    if (act) ns[actId] = { ...act, exercises: (act.exercises || []).filter(e => e.id !== exId) };
+    ns._deletedEx = { ...(ns._deletedEx || {}), [exId]: Date.now() };
     persist(ns);
   };
   // Unisce tutti gli esercizi di sourceId in targetId, poi elimina la sorgente.
@@ -317,6 +353,7 @@ function App() {
     });
     ns[targetId] = { name: tgt.name || src.name, color: tgt.color || src.color, exercises: Object.values(byId) };
     delete ns[sourceId];
+    ns._deleted = { ...(ns._deleted || {}), [sourceId]: Date.now() };  // il doppione resta eliminato
     persist(ns);
   };
   const goHome = () => {
@@ -331,6 +368,7 @@ function App() {
           sortMode, setSortMode,
           onBack: goHome,
           onChange: updateActivity,
+          onRemoveExercise: removeExercise,
         })
       : h(Home, { store, synced, onOpen: setOpenId, onRemove: removeActivity, onMerge: mergeActivity }),
     h(ToastHost)
@@ -527,7 +565,7 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
 /* ============================================================
    BOARD — bacheca esercizi di una attività
    ============================================================ */
-function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
+function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExercise }) {
   const c = COLORS[activity.color] || COLORS.verde;
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -567,7 +605,7 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange }) {
   };
   const remove = (id, name) => setConfirm({ id, name });
   const doRemove = () => {
-    update(activity.exercises.filter(e => e.id !== confirm.id));
+    onRemoveExercise(activity.id, confirm.id);   // rimuove + tombstone (così non risorge)
     setConfirm(null);
     showToast('Esercizio eliminato');
   };
