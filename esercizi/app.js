@@ -300,6 +300,25 @@ function App() {
     delete ns[id];
     persist(ns);
   };
+  // Unisce tutti gli esercizi di sourceId in targetId, poi elimina la sorgente.
+  const mergeActivity = (sourceId, targetId) => {
+    if (sourceId === targetId) return;
+    const ns = { ...store };
+    const src = ns[sourceId] || {};
+    const tgt = ns[targetId] || {};
+    const byId = {};
+    (tgt.exercises || []).forEach(e => { byId[e.id] = e; });
+    (src.exercises || []).forEach(e => {
+      const p = byId[e.id];
+      if (!p) { byId[e.id] = e; return; }
+      // vince chi ha count più alto, poi lastDone più recente
+      byId[e.id] = ((e.count || 0) > (p.count || 0) ||
+        ((e.count || 0) === (p.count || 0) && (e.lastDone || '') > (p.lastDone || ''))) ? e : p;
+    });
+    ns[targetId] = { name: tgt.name || src.name, color: tgt.color || src.color, exercises: Object.values(byId) };
+    delete ns[sourceId];
+    persist(ns);
+  };
   const goHome = () => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     setOpenId(null);
@@ -313,7 +332,7 @@ function App() {
           onBack: goHome,
           onChange: updateActivity,
         })
-      : h(Home, { store, synced, onOpen: setOpenId, onRemove: removeActivity }),
+      : h(Home, { store, synced, onOpen: setOpenId, onRemove: removeActivity, onMerge: mergeActivity }),
     h(ToastHost)
   );
 }
@@ -381,8 +400,9 @@ function ActivityTimeChart({ activities }) {
 /* ============================================================
    HOME — attività che hanno esercizi (arrivano dal CDF)
    ============================================================ */
-function Home({ store, synced, onOpen, onRemove }) {
-  const [confirm, setConfirm] = useState(null); // { id, name }
+function Home({ store, synced, onOpen, onRemove, onMerge }) {
+  const [confirm, setConfirm] = useState(null);   // { id, name }
+  const [movingId, setMovingId] = useState(null); // id della card da spostare
 
   const activities = Object.keys(store)
     .filter(k => !isMeta(k))
@@ -434,11 +454,13 @@ function Home({ store, synced, onOpen, onRemove }) {
         const done = exs.reduce((s, e) => s + (e.count || 0), 0);
         const stale = exs.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
         const totalAvgTime = exs.reduce((s, e) => { const avg = avgTime(e); return s + (avg || 0); }, 0);
+        const isMoving = movingId === a.id;
+        const otherActivities = activities.filter(x => x.id !== a.id);
         return h('div', { key: a.id, className: 'activity-card' },
           h('button', {
             id: `activity-${a.id}`,
             className: 'activity-btn',
-            onClick: () => onOpen(a.id),
+            onClick: () => { if (!isMoving) onOpen(a.id); },
           },
             h('span', { className: 'dot', style: { background: c.dot } }),
             h('div', { className: 'activity-info' },
@@ -452,11 +474,43 @@ function Home({ store, synced, onOpen, onRemove }) {
             ),
             h(Icon, { d: icons.arrow, size: 16, style: { marginLeft: 'auto', color: '#d6d3ce' } }),
           ),
-          h('button', {
-            className: 'icon-btn',
-            title: 'Rimuovi dalla libreria (gli esercizi vengono cancellati)',
-            onClick: () => setConfirm({ id: a.id, name: a.name }),
-          }, h(Icon, { d: icons.trash, size: 15 }))
+          h('div', { style: { display: 'flex', gap: '4px' } },
+            h('button', {
+              className: 'icon-btn',
+              title: isMoving ? 'Annulla spostamento' : 'Sposta esercizi in un\'altra attività',
+              style: isMoving ? { color: '#2563eb' } : {},
+              onClick: () => setMovingId(isMoving ? null : a.id),
+            }, isMoving ? '✕' : h(Icon, { d: 'M5 12h14M13 6l6 6-6 6', size: 15 })),
+            h('button', {
+              className: 'icon-btn',
+              title: 'Rimuovi dalla libreria (gli esercizi vengono cancellati)',
+              onClick: () => setConfirm({ id: a.id, name: a.name }),
+            }, h(Icon, { d: icons.trash, size: 15 })),
+          ),
+          isMoving && h('div', { style: { padding: '8px 12px 10px', borderTop: '1px solid #f0ede8' } },
+            h('p', { style: { fontSize: '12px', color: '#78716c', margin: '0 0 6px' } },
+              'Sposta tutti gli esercizi di "' + a.name + '" in:'
+            ),
+            otherActivities.length === 0
+              ? h('p', { style: { fontSize: '12px', color: '#a8a29e', fontStyle: 'italic' } }, 'Nessun\'altra attività disponibile.')
+              : otherActivities.map(t =>
+                  h('button', {
+                    key: t.id,
+                    style: {
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '7px 10px', margin: '3px 0',
+                      background: '#f7f6f3', border: '1px solid #e8e4de',
+                      borderRadius: '8px', fontSize: '13px', fontWeight: 500,
+                      cursor: 'pointer',
+                    },
+                    onClick: () => {
+                      onMerge(a.id, t.id);
+                      setMovingId(null);
+                      showToast('Esercizi spostati in "' + t.name + '" ✓');
+                    },
+                  }, t.name)
+                )
+          )
         );
       }),
     ),
