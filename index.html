@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1782042691";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1782045759";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -413,22 +413,26 @@ function mergeData(local, remote){
   }
   out._labels       = mergeLabels(older._labels,       newer._labels);
   out._sectionNames = mergeLabels(older._sectionNames, newer._sectionNames);
-  // _customActivities: per ogni sezione, union degli array; l'attività con stesso id viene presa dal più recente
+  // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque.
+  // Lo calcoliamo PRIMA delle custom, così possiamo usarlo come filtro autorevole qui sotto.
+  const mergedDeleted = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
+  out._deletedActivities = mergedDeleted;
+  // _customActivities: union degli array (l'id più recente vince) MA un id con tombstone
+  // viene SEMPRE escluso. Così un dispositivo fermo a una versione vecchia (o con dati
+  // sporchi) non può "resuscitare" un fantasma già eliminato ricaricandolo nel cloud.
   const allSecIds = new Set(Object.keys(older._customActivities||{}).concat(Object.keys(newer._customActivities||{})));
   const mergedCustom = {};
   allSecIds.forEach(sid=>{
     const oActs = (older._customActivities||{})[sid]||[];
     const nActs = (newer._customActivities||{})[sid]||[];
     const byId = {};
-    oActs.forEach(a=>byId[a.id]=a);
-    nActs.forEach(a=>byId[a.id]=a); // newer sovrascrive
+    oActs.forEach(a=>{ if(a && a.id && !mergedDeleted[a.id]) byId[a.id]=a; });
+    nActs.forEach(a=>{ if(a && a.id && !mergedDeleted[a.id]) byId[a.id]=a; }); // newer sovrascrive
     mergedCustom[sid] = Object.values(byId);
   });
   out._customActivities = mergedCustom;
   // _hiddenActivities: union (se uno nasconde, nasconde)
   out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
-  // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque
-  out._deletedActivities = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
   // _activityTypes: override tipo per attività (newer wins per chiave)
   out._activityTypes = Object.assign({}, older._activityTypes||{}, newer._activityTypes||{});
   out._order  = newer._order || older._order || {};
@@ -575,8 +579,8 @@ function repairData(){
     const list=data._customActivities[sid]||[];
     const groups={}; const kept=[];
     list.forEach(a=>{
-      if(!a || !a.id) return;                 // voce corrotta: scartala
-      if(tomb[a.id]) return;                  // già eliminata: non re-inserirla
+      if(!a || !a.id){ changed=true; return; }     // voce corrotta: scartala (e persisti)
+      if(tomb[a.id]){ changed=true; return; }       // già eliminata: rimuovila dall'array e persisti
       const label=(data._labels&&data._labels[a.id])?String(data._labels[a.id]).trim():"";
       const nm=(typeof a.name==="string")?a.name.trim():"";
       const display=label||nm;
@@ -1289,7 +1293,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782042691" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782045759" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
