@@ -692,7 +692,11 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
       }),
 
       h('div', { className: 'exercise-info' },
-        h('div', { className: 'exercise-name' }, ex.name),
+        h('button', {
+          className: 'exercise-name exercise-name-btn',
+          title: 'Tocca per modificare',
+          onClick: onEdit,
+        }, ex.name),
         ex.notes && h('div', { className: 'exercise-notes' }, ex.notes),
         h('div', { className: 'exercise-stats' },
           h('span', null, `${ex.count || 0}× eseguito`),
