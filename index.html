@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1782052004";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1782059530";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -386,19 +386,35 @@ function mergeData(local, remote){
   if(!remote || typeof remote!=="object") return local;
   if(!local) return remote;
   const localNewer = (local._updatedAt||0) >= (remote._updatedAt||0);
-  const newer = localNewer?local:remote, older = localNewer?remote:local;
+  const newerGlobal = localNewer?local:remote, olderGlobal = localNewer?remote:local;
   const out = {};
+  
+  const localTs = local._ts || {};
+  const remoteTs = remote._ts || {};
+  const mergedTs = {};
+  const allTsKeys = new Set(Object.keys(localTs).concat(Object.keys(remoteTs)));
+  allTsKeys.forEach(k => { mergedTs[k] = Math.max(localTs[k] || 0, remoteTs[k] || 0); });
+  out._ts = mergedTs;
+
   const weeks = {};
   Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_")) weeks[k]=1; });
   Object.keys(weeks).forEach(wk=>{
     if(wk < MIN_WEEK) return; // Filtra le settimane precedenti
     const merged = {};
-    const allActs = new Set(Object.keys(older[wk]||{}).concat(Object.keys(newer[wk]||{})));
+    const allActs = new Set(Object.keys(local[wk]||{}).concat(Object.keys(remote[wk]||{})));
     allActs.forEach(actId=>{
-      const a=(older[wk]||{})[actId], b=(newer[wk]||{})[actId];
+      const a=(local[wk]||{})[actId], b=(remote[wk]||{})[actId];
       if(!a){ merged[actId]=b; }
       else if(!b){ merged[actId]=a; }
-      else{ merged[actId]=b.slice(); } // LWW: l'array più recente sovrascrive, per permettere di togliere le spunte
+      else{ 
+        merged[actId] = [false,false,false,false,false,false,false];
+        for(let i=0; i<7; i++){
+          const kTs = `${wk}_${actId}_${i}`;
+          const tsA = localTs[kTs] || local._updatedAt || 0;
+          const tsB = remoteTs[kTs] || remote._updatedAt || 0;
+          merged[actId][i] = (tsA >= tsB) ? a[i] : b[i];
+        }
+      }
     });
     if(Object.keys(merged).length) out[wk]=merged;
   });
@@ -411,20 +427,20 @@ function mergeData(local, remote){
     keys.forEach(k=>{ const ov=(o||{})[k], nv=(n||{})[k]; if(nv) out2[k]=nv; else if(ov) out2[k]=ov; });
     return out2;
   }
-  out._labels       = mergeLabels(older._labels,       newer._labels);
-  out._sectionNames = mergeLabels(older._sectionNames, newer._sectionNames);
+  out._labels       = mergeLabels(olderGlobal._labels,       newerGlobal._labels);
+  out._sectionNames = mergeLabels(olderGlobal._sectionNames, newerGlobal._sectionNames);
   // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque.
   // Lo calcoliamo PRIMA delle custom, così possiamo usarlo come filtro autorevole qui sotto.
-  const mergedDeleted = Object.assign({}, older._deletedActivities||{}, newer._deletedActivities||{});
+  const mergedDeleted = Object.assign({}, olderGlobal._deletedActivities||{}, newerGlobal._deletedActivities||{});
   out._deletedActivities = mergedDeleted;
   // _customActivities: union degli array (l'id più recente vince) MA un id con tombstone
   // viene SEMPRE escluso. Così un dispositivo fermo a una versione vecchia (o con dati
   // sporchi) non può "resuscitare" un fantasma già eliminato ricaricandolo nel cloud.
-  const allSecIds = new Set(Object.keys(older._customActivities||{}).concat(Object.keys(newer._customActivities||{})));
+  const allSecIds = new Set(Object.keys(olderGlobal._customActivities||{}).concat(Object.keys(newerGlobal._customActivities||{})));
   const mergedCustom = {};
   allSecIds.forEach(sid=>{
-    const oActs = (older._customActivities||{})[sid]||[];
-    const nActs = (newer._customActivities||{})[sid]||[];
+    const oActs = (olderGlobal._customActivities||{})[sid]||[];
+    const nActs = (newerGlobal._customActivities||{})[sid]||[];
     const byId = {};
     oActs.forEach(a=>{ if(a && a.id && !mergedDeleted[a.id]) byId[a.id]=a; });
     nActs.forEach(a=>{ if(a && a.id && !mergedDeleted[a.id]) byId[a.id]=a; }); // newer sovrascrive
@@ -432,10 +448,10 @@ function mergeData(local, remote){
   });
   out._customActivities = mergedCustom;
   // _hiddenActivities: union (se uno nasconde, nasconde)
-  out._hiddenActivities = Object.assign({}, older._hiddenActivities||{}, newer._hiddenActivities||{});
+  out._hiddenActivities = Object.assign({}, olderGlobal._hiddenActivities||{}, newerGlobal._hiddenActivities||{});
   // _activityTypes: override tipo per attività (newer wins per chiave)
-  out._activityTypes = Object.assign({}, older._activityTypes||{}, newer._activityTypes||{});
-  out._order  = newer._order || older._order || {};
+  out._activityTypes = Object.assign({}, olderGlobal._activityTypes||{}, newerGlobal._activityTypes||{});
+  out._order  = newerGlobal._order || olderGlobal._order || {};
   out._updatedAt = Math.max(local._updatedAt||0, remote._updatedAt||0);
   return out;
 }
@@ -452,7 +468,7 @@ async function doPush(){
       repairData();   // mantieni puliti anche i dati riletti prima di riscrivere
       if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
     }
-    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, keepalive:true, body:JSON.stringify(data)});
     setSync(r.ok ? "ok" : "error");
   }catch(e){ setSync("error"); }
 }
@@ -460,7 +476,7 @@ function schedulePush(){
   if(!pantryId){ saveLocal(); return; }
   saveLocal(); setSync("saving");
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(doPush, 1200);
+  pushTimer = setTimeout(doPush, 500);
 }
 async function reconcile(){
   if(!pantryId){ setSync("off"); return; }
@@ -630,6 +646,8 @@ function setCell(key, actId, day, val){
   if(!data[key][actId]) data[key][actId]=[false,false,false,false,false,false,false];
   data[key][actId][day]=val;
   data._updatedAt = Date.now();
+  if(!data._ts) data._ts = {};
+  data._ts[`${key}_${actId}_${day}`] = Math.max(Date.now(), (data._ts[`${key}_${actId}_${day}`] || 0) + 1);
   schedulePush();
 }
 
@@ -1301,7 +1319,13 @@ function setTabs(){
     document.getElementById(id).setAttribute("aria-selected", isActive ? "true" : "false");
   });
 }
-document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && pantryId) reconcile(); });
+document.addEventListener("visibilitychange", ()=>{ 
+  if(document.visibilityState==="visible" && pantryId){
+    reconcile(); 
+  } else if(document.visibilityState==="hidden" && pantryId){
+    if (pushTimer) { clearTimeout(pushTimer); doPush(); }
+  }
+});
 
 /* ===================== Auto-aggiornamento ===================== */
 /* All'apertura controlla se sul sito c'è una versione più recente e, in tal caso,
@@ -1310,7 +1334,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782052004" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782059530" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
