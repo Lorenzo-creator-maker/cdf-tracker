@@ -259,7 +259,7 @@
 
 <script>
 "use strict";
-const APP_VERSION = "1782150534";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1782156669";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -728,7 +728,7 @@ const MONTHS_LONG = ["gennaio","febbraio","marzo","aprile","maggio","giugno","lu
 function todayIndex(d){ return (d.getDay()+6)%7; }   // 0=Lun .. 6=Dom
 function appliesToday(act, ti, dateNum){
   if(act.weekly) return true;                         // settimanale: visibile tutta la settimana
-  if(act.day!==undefined) return ti>=act.day;         // dal giorno previsto in poi (recuperabile un altro giorno, finché non spuntato)
+  if(act.day!==undefined) return true;                 // sempre visibili; il tag indica il giorno suggerito; recuperabile se saltato
   if(act.odd) return dateNum%2===1;                   // solo date dispari
   return true;                                        // giornaliera
 }
@@ -792,7 +792,7 @@ function renderToday(){
     const hidden = Math.max(0, totVisible - totTot);
     note = '<div class="today-note">'+
       (hidden>0 ? hidden+' attività non in programma oggi · ' : '')+
-      'compaiono quando tocca a loro (giorni dispari, corsi degli altri giorni).</div>';
+      'compaiono solo nei giorni dispari.</div>';
   }
   document.getElementById("todayView").innerHTML = hero + body + note;
 }
@@ -1334,7 +1334,7 @@ async function checkUpdate(){
   try{
     const txt = await fetch(location.pathname + "?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782150534" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1782156669" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
