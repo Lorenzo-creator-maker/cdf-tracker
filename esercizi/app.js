@@ -31,6 +31,32 @@ const COLORS = {
 };
 const COLOR_KEYS = Object.keys(COLORS);
 
+/* IDs builtin del CDF Tracker — speculare a SECTIONS in index.html */
+const BUILTIN_IDS = new Set([
+  'respiro','esvoce','schiena','bagua','trapz','cfg','esyoga','kf','occhi','perin','collo','polsi','allungamento','seqex',
+  'at_p','at_s','at_focali','at_l',
+  'indicazioni','risprec','mail','promemoria','ordinefile','foto','ripasso','enagic','pagamenti',
+  'argA','argB','argC','argD','argE','argF','argG',
+]);
+
+/* Legge cdfTracker_v2 e restituisce il Set di actId validi nel CDF.
+   Ritorna null se i dati CDF non sono disponibili su questo dispositivo (no filtro). */
+function getCdfValidIds() {
+  try {
+    const raw = localStorage.getItem('cdfTracker_v2');
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    const ids = new Set(BUILTIN_IDS);
+    const deleted = d._deletedActivities || {};
+    const customs = d._customActivities || {};
+    for (const sid in customs) {
+      (customs[sid] || []).forEach(a => { if (a && a.id) ids.add(a.id); });
+    }
+    for (const id in deleted) ids.delete(id);
+    return ids;
+  } catch { return null; }
+}
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const daysSince = (iso) => {
   if (!iso) return null;
@@ -442,13 +468,17 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
   const [confirm, setConfirm] = useState(null);   // { id, name }
   const [movingId, setMovingId] = useState(null); // id della card da spostare
 
-  const activities = Object.keys(store)
+  const allActivities = Object.keys(store)
     .filter(k => !isMeta(k))
     .map(id => ({ id, ...store[id] }))
     .sort((a, b) => {
       const ci = COLOR_KEYS.indexOf(a.color) - COLOR_KEYS.indexOf(b.color);
       return ci !== 0 ? ci : (a.name || '').localeCompare(b.name || '');
     });
+
+  const validIds = getCdfValidIds();
+  const activities = validIds ? allActivities.filter(a => validIds.has(a.id)) : allActivities;
+  const orphanCount = allActivities.length - activities.length;
 
   const totalExercises = activities.reduce((s, a) => s + (a.exercises ? a.exercises.length : 0), 0);
   const totalDone = activities.reduce((s, a) => s + (a.exercises || []).reduce((ss, e) => ss + (e.count || 0), 0), 0);
@@ -485,6 +515,10 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
       ),
 
       activities.length > 0 && h(ActivityTimeChart, { activities }),
+
+      orphanCount > 0 && h('p', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' } },
+        `${orphanCount} ${orphanCount === 1 ? 'attività rimossa' : 'attività rimosse'} dal CDF Tracker`
+      ),
 
       ...activities.map(a => {
         const c = COLORS[a.color] || COLORS.verde;
