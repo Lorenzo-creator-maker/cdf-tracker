@@ -35,6 +35,16 @@ self.addEventListener("activate", function(event) {
   );
 });
 
+self.addEventListener("notificationclick", function(event) {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type:"window", includeUncontrolled:true }).then(function(list){
+      for(const c of list){ if(c.url.includes("/cdf-tracker/") && "focus" in c) return c.focus(); }
+      if(clients.openWindow) return clients.openWindow(APP_URL);
+    })
+  );
+});
+
 self.addEventListener("fetch", function(event) {
   const url = new URL(event.request.url);
 
