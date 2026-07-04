@@ -31,8 +31,9 @@ const COLORS = {
 };
 const COLOR_KEYS = Object.keys(COLORS);
 
-/* IDs builtin del CDF Tracker — speculare a SECTIONS in index.html */
-const BUILTIN_IDS = new Set([
+/* IDs builtin del CDF Tracker — fonte canonica: ../shared.js
+   Usa window.BUILTIN_IDS se disponibile (caricato dal CDF), altrimenti fallback locale. */
+const BUILTIN_IDS = window.BUILTIN_IDS || new Set([
   'respiro','esvoce','schiena','bagua','trapz','cfg','esyoga','kf','occhi','perin','collo','polsi','allungamento','seqex',
   'at_p','at_s','at_focali','at_l',
   'indicazioni','risprec','mail','promemoria','ordinefile','foto','ripasso','enagic','pagamenti',
