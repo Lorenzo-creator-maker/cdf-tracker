@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1783171128";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1783753867";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -41,13 +41,13 @@ const SECTIONS = [
     {id:"pagamenti",name:"Pagamenti",freq:1}
   ]},
   { id:"corsi", name:"Corsi", emoji:"📚", activities:[
-    {id:"argF",name:"Mulligan",day:5},
-    {id:"argA",name:"ATM",day:0},
-    {id:"argB",name:"Belotti",day:1},
-    {id:"argC",name:"FCC",day:2},
-    {id:"argD",name:"Ipnovendita",day:3},
-    {id:"argE",name:"Montemagno",day:4},
-    {id:"argG",name:"Argomento G",day:6}
+    {id:"argF",name:"Mulligan",freq:1},
+    {id:"argA",name:"ATM",freq:1},
+    {id:"argB",name:"Belotti",freq:1},
+    {id:"argC",name:"FCC",freq:1},
+    {id:"argD",name:"Ipnovendita",freq:1},
+    {id:"argE",name:"Montemagno",freq:1},
+    {id:"argG",name:"Argomento G",freq:1}
   ]}
 ];
 
@@ -692,7 +692,7 @@ function renderToday(){
   let welcome='';
   if(firstTime){
     welcome = '<div class="welcome-card"><div class="wc-emoji">👋</div>'+
-      '<div><b>Benvenuto in CDF Tracker!</b><br>'+
+      '<div><b>Benvenuto in ATTIVITA!</b><br>'+
       'Tocca un’attività per segnarla come fatta. Percentuali, serie e grafici si costruiscono da soli mentre vai avanti.</div></div>';
   }
 
@@ -970,12 +970,19 @@ function renderHistory(){
 }
 
 /* ===================== Impostazioni ===================== */
+let settingsOpenSections = new Set();
+function toggleAccSection(key){
+  if(settingsOpenSections.has(key)) settingsOpenSections.delete(key);
+  else settingsOpenSections.add(key);
+  const el = document.querySelector('.acc-item[data-acckey="'+key+'"]');
+  if(el) el.classList.toggle('open');
+}
 function renderSettings(){
   let h = "";
   h += '<div class="accordion">';
 
   // Sezione 1: Sincronizzazione
-  h += '<div class="acc-item"><button class="acc-header" onclick="this.parentElement.classList.toggle(\'open\')">☁️ Sincronizzazione Cloud</button><div class="acc-content">';
+  h += '<div class="acc-item'+(settingsOpenSections.has('sync')?' open':'')+'" data-acckey="sync"><button class="acc-header" onclick="toggleAccSection(\'sync\')">☁️ Sincronizzazione Cloud</button><div class="acc-content">';
   if(!pantryId){
     h += '<p class="sub" style="margin-top:12px">Per condividere gli stessi dati tra Mac e iPhone, crea un codice gratuito (serve solo un\'email):</p>';
     h += '<ol class="ol">'+
@@ -992,7 +999,7 @@ function renderSettings(){
   h += '</div><div id="syncMsg"></div></div></div>'; // end acc-content, acc-item
 
   // Sezione 2: Gestisci attività
-  h += '<div class="acc-item"><button class="acc-header" onclick="this.parentElement.classList.toggle(\'open\')">🏷️ Gestisci Sezioni e Attività</button><div class="acc-content">';
+  h += '<div class="acc-item'+(settingsOpenSections.has('activities')?' open':'')+'" data-acckey="activities"><button class="acc-header" onclick="toggleAccSection(\'activities\')">🏷️ Gestisci Sezioni e Attività</button><div class="acc-content">';
   h += '<p class="sub" style="margin-top:12px">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
   SECTIONS.forEach(s=>{
     const sl = sectionLabel(s);
@@ -1069,7 +1076,7 @@ function renderSettings(){
   h += '<div class="row-btns" style="margin-top:12px"><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div></div>'; // end acc-content, acc-item
 
   // Sezione 3: Backup
-  h += '<div class="acc-item"><button class="acc-header" onclick="this.parentElement.classList.toggle(\'open\')">💾 Backup Dati</button><div class="acc-content">';
+  h += '<div class="acc-item'+(settingsOpenSections.has('backup')?' open':'')+'" data-acckey="backup"><button class="acc-header" onclick="toggleAccSection(\'backup\')">💾 Backup Dati</button><div class="acc-content">';
   h += '<p class="sub" style="margin-top:12px">Scarica una copia o ripristina i dati da un file.</p>'+
        '<div class="row-btns"><button class="btn ghost" id="exportBtn">⬆️ Esporta</button>'+
        '<button class="btn ghost" id="importBtn">⬇️ Importa</button></div></div></div>'; // end acc-content, acc-item
@@ -1271,7 +1278,10 @@ function moveActivity(sectionId, actId, dir){
   if(idx<0 || j<0 || j>=full.length) return;
   const t=full[idx]; full[idx]=full[j]; full[j]=t;
   data._order = data._order || {}; data._order[sectionId] = full;
-  data._updatedAt = Date.now(); schedulePush(); renderSettings();
+  data._updatedAt = Date.now(); schedulePush();
+  const scrollY = window.scrollY;
+  renderSettings();
+  window.scrollTo(0, scrollY);
 }
 function onResetNames(){
   if(!confirm("Ripristinare tutti i nomi predefiniti? (nomi sezioni, attività built-in; le attività custom restano)")) return;
@@ -1422,7 +1432,7 @@ async function checkUpdate(){
     // APP_VERSION vive in app.js (non più in index.html): va letta da qui.
     const txt = await fetch("app.js?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1783171128" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1783753867" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }
