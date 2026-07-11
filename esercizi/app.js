@@ -490,7 +490,7 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
     h('header', { className: 'header' },
       h('a', { className: 'header-back', href: '../' },
         h(Icon, { d: icons.back, size: 16 }),
-        'CDF Tracker'
+        'ATTIVITA'
       ),
       h('div', { className: 'header-title-row' },
         h('h1', { style: { fontSize: '20px', fontWeight: 700, letterSpacing: '-0.4px' } }, '📚 Libreria Esercizi'),
@@ -506,19 +506,19 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
         h('div', { className: 'empty-icon' }, '🏋️'),
         h('p', null,
           'Nessun esercizio ancora.', h('br'),
-          'Apri il ', h('a', { href: '../', style: { color: '#2f9e6f', fontWeight: 600 } }, 'CDF Tracker'),
+          'Apri ', h('a', { href: '../', style: { color: '#2f9e6f', fontWeight: 600 } }, 'ATTIVITA'),
           ' e tocca il nome di un’attività per aggiungere i suoi esercizi qui.'
         )
       ),
 
       activities.length > 0 && h('p', { className: 'home-hint' },
-        'Le attività arrivano dal CDF Tracker. Tocca un’attività per gestirne gli esercizi.'
+        'Le attività arrivano da ATTIVITA. Tocca un’attività per gestirne gli esercizi.'
       ),
 
       activities.length > 0 && h(ActivityTimeChart, { activities }),
 
       orphanCount > 0 && h('p', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' } },
-        `${orphanCount} ${orphanCount === 1 ? 'attività rimossa' : 'attività rimosse'} dal CDF Tracker`
+        `${orphanCount} ${orphanCount === 1 ? 'attività rimossa' : 'attività rimosse'} da ATTIVITA`
       ),
 
       ...activities.map(a => {
@@ -590,7 +590,7 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
 
     confirm && h(ConfirmDialog, {
       title: 'Rimuovi attività',
-      msg: `Rimuovere "${confirm.name}" e tutti i suoi esercizi dalla libreria? L’attività resta nel CDF Tracker.`,
+      msg: `Rimuovere "${confirm.name}" e tutti i suoi esercizi dalla libreria? L’attività resta in ATTIVITA.`,
       onConfirm: doRemove,
       onCancel: () => setConfirm(null),
     })
