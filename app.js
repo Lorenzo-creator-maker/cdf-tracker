@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1783753867";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1787489951";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -74,7 +74,7 @@ function exHref(actId, secId){
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
-const MIN_WEEK = "2026-06-15";
+const MIN_WEEK = "2026-08-17";
 let pruned = false;
 Object.keys(data).forEach(k => {
   if (!k.startsWith("_") && k < MIN_WEEK) {
@@ -82,6 +82,33 @@ Object.keys(data).forEach(k => {
     pruned = true;
   }
 });
+// Pulizia timestamps _ts per settimane passate
+if (data._ts) {
+  Object.keys(data._ts).forEach(k => {
+    const wk = k.slice(0, 10);
+    if (wk < MIN_WEEK) {
+      delete data._ts[k];
+      pruned = true;
+    }
+  });
+}
+// Pulisci i giorni precedenti a oggi nella settimana corrente se rimasti da sessioni passate
+const currentMondayKey = fmtKey(getMonday(new Date()));
+const curDayIndex = todayIndex(new Date());
+if (data[currentMondayKey]) {
+  Object.keys(data[currentMondayKey]).forEach(actId => {
+    const arr = data[currentMondayKey][actId];
+    if (Array.isArray(arr)) {
+      for (let i = 0; i < curDayIndex; i++) {
+        if (arr[i]) {
+          arr[i] = false;
+          pruned = true;
+          if (data._ts) delete data._ts[`${currentMondayKey}_${actId}_${i}`];
+        }
+      }
+    }
+  });
+}
 if (pruned) {
   data._updatedAt = Date.now();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
@@ -146,7 +173,7 @@ async function pullRemote(){
   if(!pantryId) return undefined;
   try{
     const r = await fetch(pantryUrl(), {method:"GET", cache:"no-store"});
-    if(r.status===400) return null;
+    if(r.status===400 || r.status===404) return null;
     if(!r.ok) throw new Error("HTTP "+r.status);
     return await r.json();
   }catch(e){ return "ERR"; }
@@ -162,11 +189,21 @@ function mergeData(local, remote){
   const newerGlobal = localNewer?local:remote, olderGlobal = localNewer?remote:local;
   const out = {};
   
+  // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque.
+  // Lo calcoliamo PRIMA delle custom e delle settimane per usarlo come filtro autorevole.
+  const mergedDeleted = Object.assign({}, olderGlobal._deletedActivities||{}, newerGlobal._deletedActivities||{});
+  out._deletedActivities = mergedDeleted;
+
   const localTs = local._ts || {};
   const remoteTs = remote._ts || {};
   const mergedTs = {};
   const allTsKeys = new Set(Object.keys(localTs).concat(Object.keys(remoteTs)));
-  allTsKeys.forEach(k => { mergedTs[k] = Math.max(localTs[k] || 0, remoteTs[k] || 0); });
+  allTsKeys.forEach(k => {
+    const wk = k.slice(0, 10);
+    if (wk >= MIN_WEEK) {
+      mergedTs[k] = Math.max(localTs[k] || 0, remoteTs[k] || 0);
+    }
+  });
   out._ts = mergedTs;
 
   const weeks = {};
@@ -176,6 +213,7 @@ function mergeData(local, remote){
     const merged = {};
     const allActs = new Set(Object.keys(local[wk]||{}).concat(Object.keys(remote[wk]||{})));
     allActs.forEach(actId=>{
+      if(mergedDeleted[actId]) return;
       const a=(local[wk]||{})[actId], b=(remote[wk]||{})[actId];
       if(!a){ merged[actId]=b; }
       else if(!b){ merged[actId]=a; }
@@ -202,10 +240,7 @@ function mergeData(local, remote){
   }
   out._labels       = mergeLabels(olderGlobal._labels,       newerGlobal._labels);
   out._sectionNames = mergeLabels(olderGlobal._sectionNames, newerGlobal._sectionNames);
-  // _deletedActivities: union — se eliminato su un dispositivo, resta eliminato ovunque.
-  // Lo calcoliamo PRIMA delle custom, così possiamo usarlo come filtro autorevole qui sotto.
-  const mergedDeleted = Object.assign({}, olderGlobal._deletedActivities||{}, newerGlobal._deletedActivities||{});
-  out._deletedActivities = mergedDeleted;
+
   // _customActivities: union degli array (l'id più recente vince) MA un id con tombstone
   // viene SEMPRE escluso. Così un dispositivo fermo a una versione vecchia (o con dati
   // sporchi) non può "resuscitare" un fantasma già eliminato ricaricandolo nel cloud.
@@ -510,8 +545,7 @@ function renderHeader(){
   document.getElementById("navbar").classList.toggle("hidden", view!=="week");
 
   // Limita navigazione indietro
-  const minWeek = new Date(MIN_WEEK);
-  const canPrev = viewMonday > minWeek;
+  const canPrev = fmtKey(viewMonday) > MIN_WEEK;
   const prevBtn = document.getElementById("prev");
   if(prevBtn){
     prevBtn.disabled = !canPrev;
@@ -553,9 +587,8 @@ function appliesToday(act, ti, dateNum, monday){
 /* ===================== Serie (streak), feedback e onboarding ===================== */
 const STREAK_GOAL = 0.6;   // un giorno conta per la serie se completi ≥ 60% delle attività in programma
 function currentStreak(){
-  const minMs = new Date(MIN_WEEK+"T00:00:00").getTime();
   let count=0, isToday=true, d=new Date(); d.setHours(0,0,0,0);
-  while(d.getTime() >= minMs){
+  while(fmtKey(d) >= MIN_WEEK){
     const ds = dayStats(getMonday(d), todayIndex(d));
     if(ds.total === 0){ d=addDays(d,-1); isToday=false; continue; }   // niente in programma: giorno neutro
     if(ds.ratio >= STREAK_GOAL) count++;
@@ -566,16 +599,15 @@ function currentStreak(){
 }
 function recentActiveDays(maxDays){
   // giorni recenti (escluso oggi) in cui hai completato almeno un'attività
-  const minMs=new Date(MIN_WEEK+"T00:00:00").getTime();
   const out=[]; let d=addDays(new Date(),-1); d.setHours(0,0,0,0);
-  while(d.getTime()>=minMs && out.length<maxDays){
+  while(fmtKey(d) >= MIN_WEEK && out.length<maxDays){
     if(dayStats(getMonday(d), todayIndex(d)).done>0) out.push(new Date(d));
     d=addDays(d,-1);
   }
   return out;
 }
-function todayCounts(){
-  const now=new Date(), key=fmtKey(getMonday(now)), ti=todayIndex(now), dateNum=now.getDate();
+function todayCounts(targetDate = todayViewDate){
+  const now=targetDate, key=fmtKey(getMonday(now)), ti=todayIndex(now), dateNum=now.getDate();
   let done=0,total=0;
   SECTIONS.forEach(s=> orderedActivities(s).forEach(a=>{
     if(!appliesToday(a,ti,dateNum, getMonday(now))) return;
@@ -656,7 +688,7 @@ function renderToday(){
       const lbl = esc(actLabel(a.id));
       rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
               'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
-              '<a class="trlabel" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+lbl+'">'+lbl+tag+'</a>'+
+              '<span class="trlabel"><a class="trlabelname" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+lbl+'">'+lbl+'</a>'+tag+'</span>'+
               '<span class="trcheck">✓</span></div>';
     });
     const secTot = todays.length, ratio = secTot? secDone/secTot : 0;
@@ -1079,7 +1111,10 @@ function renderSettings(){
   h += '<div class="acc-item'+(settingsOpenSections.has('backup')?' open':'')+'" data-acckey="backup"><button class="acc-header" onclick="toggleAccSection(\'backup\')">💾 Backup Dati</button><div class="acc-content">';
   h += '<p class="sub" style="margin-top:12px">Scarica una copia o ripristina i dati da un file.</p>'+
        '<div class="row-btns"><button class="btn ghost" id="exportBtn">⬆️ Esporta</button>'+
-       '<button class="btn ghost" id="importBtn">⬇️ Importa</button></div></div></div>'; // end acc-content, acc-item
+       '<button class="btn ghost" id="importBtn">⬇️ Importa</button></div>'+
+       '<div class="row-btns" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);">'+
+       '<button class="btn ghost" id="resetHistoryBtn" style="color:#ef4444;border-color:rgba(239,68,68,0.35);width:100%;">🧹 Riparti da oggi (azzera vecchio storico)</button></div>'+
+       '</div></div>'; // end acc-content, acc-item
 
   h += '</div>'; // chiusura .accordion
 
@@ -1087,6 +1122,7 @@ function renderSettings(){
   document.getElementById("saveSync").onclick = onSaveSync;
   if(pantryId) document.getElementById("discSync").onclick = onDiscSync;
   document.getElementById("resetNames").onclick = onResetNames;
+  document.getElementById("resetHistoryBtn").onclick = onResetHistoryFromToday;
   // Auto-save nomi con debounce: ogni modifica salva automaticamente dopo 800ms
   let _nameTimer = null;
   function autoSaveNames(){
@@ -1288,6 +1324,47 @@ function onResetNames(){
   data._labels={}; data._sectionNames={}; data._updatedAt=Date.now(); schedulePush(); renderSettings();
   msg("nameMsg","Nomi ripristinati.","info");
 }
+function onResetHistoryFromToday(){
+  if(!confirm("Cancellare tutto lo storico delle settimane passate e azzerare i giorni precedenti a oggi?\n\nLe impostazioni, le tue attività personalizzate e le spunte di oggi verranno mantenute.")) return;
+  const now = new Date();
+  const curMon = getMonday(now);
+  const curMonKey = fmtKey(curMon);
+  const curDay = todayIndex(now);
+
+  Object.keys(data).forEach(k => {
+    if (!k.startsWith("_") && k < curMonKey) {
+      delete data[k];
+    }
+  });
+
+  if (data._ts) {
+    Object.keys(data._ts).forEach(k => {
+      const wk = k.slice(0, 10);
+      if (wk < curMonKey) delete data._ts[k];
+    });
+  }
+
+  if (data[curMonKey]) {
+    Object.keys(data[curMonKey]).forEach(actId => {
+      const arr = data[curMonKey][actId];
+      if (Array.isArray(arr)) {
+        for (let i = 0; i < 7; i++) {
+          if (i !== curDay && arr[i]) {
+            arr[i] = false;
+            if (data._ts) delete data._ts[`${curMonKey}_${actId}_${i}`];
+          }
+        }
+      }
+    });
+  }
+
+  data._updatedAt = Date.now();
+  saveLocal();
+  schedulePush();
+  render();
+  msg("nameMsg", "✅ Storico passato azzerato. Ripartiti da oggi!", "ok");
+  showUndoToast("✅ Ripartiti da oggi!");
+}
 
 /* ===================== Esporta / Importa ===================== */
 function exportData(){
@@ -1363,9 +1440,9 @@ document.getElementById("todayView").addEventListener("click", function(e){
   }
   const row=e.target.closest(".focuschip") || e.target.closest(".todayrow");
   if(!row || !row.dataset.act) return;
-  const key=fmtKey(getMonday(new Date())), actId=row.dataset.act, day=parseInt(row.dataset.day,10);
+  const key=fmtKey(getMonday(todayViewDate)), actId=row.dataset.act, day=parseInt(row.dataset.day,10);
   const was=getCell(key,actId,day);
-  const before=todayCounts();
+  const before=todayCounts(todayViewDate);
   setCell(key, actId, day, !was);
   render();
   if(!was){                                          // attività appena completata → feedback
@@ -1377,7 +1454,7 @@ document.getElementById("todayView").addEventListener("click", function(e){
       setCell(key, actId, day, false);
       render();
     });
-    const after=todayCounts();
+    const after=todayCounts(todayViewDate);
     if(before.total>0 && before.done<before.total && after.done===after.total){
       haptic([18,40,18]);
       celebrate("Giornata piena! 🎉");
@@ -1389,8 +1466,7 @@ document.getElementById("settingsView").addEventListener("click", function(e){
   moveActivity(b.dataset.msec, b.dataset.mact, parseInt(b.dataset.mdir,10));
 });
 document.getElementById("prev").onclick=()=>{
-  const minWeek = new Date(MIN_WEEK);
-  if (viewMonday <= minWeek) return;
+  if (fmtKey(viewMonday) <= MIN_WEEK) return;
   viewMonday=addDays(viewMonday,-7);
   render();
 };
@@ -1432,7 +1508,7 @@ async function checkUpdate(){
     // APP_VERSION vive in app.js (non più in index.html): va letta da qui.
     const txt = await fetch("app.js?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "1783753867" && !sessionStorage.getItem("cdfReloaded")){
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "__BUILD_TS__" && !sessionStorage.getItem("cdfReloaded")){
       sessionStorage.setItem("cdfReloaded","1");
       location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
     }

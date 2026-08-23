@@ -112,7 +112,7 @@ async function pullRemote() {
   if (!getPantryId()) return null;
   try {
     const r = await fetch(basketUrl(), { method: 'GET', cache: 'no-store' });
-    if (r.status === 400) return null;            // basket non ancora creato
+    if (r.status === 400 || r.status === 404) return null;            // basket non ancora creato
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return stripMeta(await r.json());
   } catch (e) { return 'ERR'; }
