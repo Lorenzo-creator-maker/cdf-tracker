@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1787489951";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1789594392";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -33,13 +33,10 @@ const SECTIONS = [
   { id:"autotrattamento", name:"Autotrattamento", emoji:"💆", activities:[
     {id:"at_p",name:"P"},{id:"at_s",name:"S"},{id:"at_focali",name:"Focali"},{id:"at_l",name:"L"}
   ]},
-  { id:"lavoro", name:"Lavoro", emoji:"💼", activities:[
-    {id:"indicazioni",name:"Indicazioni pz"},{id:"risprec",name:"Risp recensioni"},
-    {id:"mail",name:"Mail importanti",freq:3},{id:"promemoria",name:"Promemoria"},
-    {id:"ordinefile",name:"Ordine file"},{id:"foto",name:"Foto",freq:3},
-    {id:"ripasso",name:"Ripasso"},{id:"enagic",name:"Enagic"},
-    {id:"pagamenti",name:"Pagamenti",freq:1}
-  ]},
+  // La sezione Lavoro non c'e' piu' dal 16/09/2026: la To-Do Lavoro si spunta
+  // solo nell'app dei promemoria (promemoria-fisioriccione), che ne misura le
+  // quote settimanali. Le spunte gia' fatte qui restano nei dati, non si
+  // cancellano: semplicemente non si mostrano piu'.
   { id:"corsi", name:"Corsi", emoji:"📚", activities:[
     {id:"argF",name:"Mulligan",freq:1},
     {id:"argA",name:"ATM",freq:1},
@@ -173,7 +170,16 @@ async function pullRemote(){
   if(!pantryId) return undefined;
   try{
     const r = await fetch(pantryUrl(), {method:"GET", cache:"no-store"});
-    if(r.status===400 || r.status===404) return null;
+    if(r.status===400 || r.status===404){
+      // Due casi diversi con lo stesso codice di errore. Il secchiello che
+      // manca e' normale al primo collegamento: la prima scrittura lo crea.
+      // Il PANTRY che manca no: vuol dire codice sbagliato o pantry sparito,
+      // e trattarlo come «vuoto» faceva dire «Sincronizzato» a un'app che non
+      // salvava niente nel cloud (trovato il 16/09/2026).
+      const testo = await r.text().catch(()=>"");
+      if(/pantry with id/i.test(testo) && /not found/i.test(testo)) return "NOPANTRY";
+      return null;
+    }
     if(!r.ok) throw new Error("HTTP "+r.status);
     return await r.json();
   }catch(e){ return "ERR"; }
@@ -281,7 +287,7 @@ async function doPush(){
   setSync("saving");
   try{
     const remote = await pullRemote();              // leggi-unisci-scrivi: non sovrascrivo il cloud
-    if(remote==="ERR"){ setSync("error"); return; } // lettura fallita: NON scrivere (sovrascriverebbe il cloud senza unire)
+    if(remote==="ERR" || remote==="NOPANTRY"){ setSync("error"); return false; } // lettura fallita: NON scrivere (sovrascriverebbe il cloud senza unire)
     if(remote){
       const before = JSON.stringify(data);
       data = mergeData(data, remote);
@@ -290,7 +296,8 @@ async function doPush(){
     }
     const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, keepalive:true, body:JSON.stringify(data)});
     setSync(r.ok ? "ok" : "error");
-  }catch(e){ setSync("error"); }
+    return r.ok;
+  }catch(e){ setSync("error"); return false; }
 }
 function schedulePush(){
   if(!pantryId){ saveLocal(); return; }
@@ -304,7 +311,7 @@ async function reconcile(){
   try {
     const remote = await pullRemote();
     initialLoading = false;
-    if(remote==="ERR"){ setSync("error"); render(); return; }
+    if(remote==="ERR" || remote==="NOPANTRY"){ setSync("error"); render(); return; }
     const before = JSON.stringify(data);
     data = mergeData(data, remote);
     if(!data._labels)           data._labels={};
@@ -1210,6 +1217,7 @@ async function onSaveSync(){
   pantryId = v; try{ localStorage.setItem(PANTRY_KEY, v); }catch(e){}
   msg("syncMsg","Verifica in corso…","info"); setSync("saving");
   const remote = await pullRemote();
+  if(remote==="NOPANTRY"){ msg("syncMsg","❌ Questo codice su getpantry.cloud non esiste. Copialo e incollalo di nuovo dalla pagina del tuo pantry.","err"); setSync("error"); return; }
   if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
   data = mergeData(data, remote);
   if(!data._labels)           data._labels={};
@@ -1217,9 +1225,13 @@ async function onSaveSync(){
   if(!data._customActivities) data._customActivities={};
   if(!data._hiddenActivities) data._hiddenActivities={};
   if(!data._deletedActivities) data._deletedActivities={};
-  saveLocal(); render(); doPush();
-  msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
-  setSync("ok");
+  saveLocal(); render();
+  msg("syncMsg","Salvataggio nel cloud…","info");
+  // Si aspetta la scrittura vera prima di dire «sincronizzato»: prima la
+  // scritta verde partiva subito, qualunque cosa rispondesse il cloud.
+  const scritto = await doPush();
+  if(scritto) msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
+  else msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva.","err");
 }
 function onDiscSync(){
   if(!confirm("Disconnettere la sincronizzazione su questo dispositivo? I dati locali restano.")) return;
