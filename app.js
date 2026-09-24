@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1789594392";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790240000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -71,15 +71,21 @@ function exHref(actId, secId){
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
-const MIN_WEEK = "2026-08-17";
+const MIN_WEEK = "2026-09-21";
+const RESET_DATE = "2026-09-24";
+const RESET_DAY_INDEX = 3; // Giovedì 24 Settembre 2026 (0=Lun, 1=Mar, 2=Mer, 3=Gio)
+
 let pruned = false;
+
+// 1. Elimina tutte le settimane precedenti a MIN_WEEK
 Object.keys(data).forEach(k => {
   if (!k.startsWith("_") && k < MIN_WEEK) {
     delete data[k];
     pruned = true;
   }
 });
-// Pulizia timestamps _ts per settimane passate
+
+// 2. Pulizia timestamps _ts per settimane passate
 if (data._ts) {
   Object.keys(data._ts).forEach(k => {
     const wk = k.slice(0, 10);
@@ -89,23 +95,29 @@ if (data._ts) {
     }
   });
 }
-// Pulisci i giorni precedenti a oggi nella settimana corrente se rimasti da sessioni passate
-const currentMondayKey = fmtKey(getMonday(new Date()));
-const curDayIndex = todayIndex(new Date());
-if (data[currentMondayKey]) {
-  Object.keys(data[currentMondayKey]).forEach(actId => {
-    const arr = data[currentMondayKey][actId];
-    if (Array.isArray(arr)) {
-      for (let i = 0; i < curDayIndex; i++) {
-        if (arr[i]) {
-          arr[i] = false;
-          pruned = true;
-          if (data._ts) delete data._ts[`${currentMondayKey}_${actId}_${i}`];
+
+// 3. Reset iniziale "ex novo da oggi" (24/09/2026):
+//    Azzera i giorni prima di oggi (Lun 21, Mar 22, Mer 23) e oggi per iniziare puliti al 100%.
+//    Il controllo su data._resetDate evita che nei giorni successivi (venerdì, sabato...) vengano cancellati i giorni precedenti.
+if (data._resetDate !== RESET_DATE) {
+  if (data[MIN_WEEK]) {
+    Object.keys(data[MIN_WEEK]).forEach(actId => {
+      const arr = data[MIN_WEEK][actId];
+      if (Array.isArray(arr)) {
+        for (let i = 0; i < 7; i++) {
+          if (arr[i]) {
+            arr[i] = false;
+            pruned = true;
+          }
+          if (data._ts) delete data._ts[`${MIN_WEEK}_${actId}_${i}`];
         }
       }
-    }
-  });
+    });
+  }
+  data._resetDate = RESET_DATE;
+  pruned = true;
 }
+
 if (pruned) {
   data._updatedAt = Date.now();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
@@ -206,9 +218,13 @@ function mergeData(local, remote){
   const allTsKeys = new Set(Object.keys(localTs).concat(Object.keys(remoteTs)));
   allTsKeys.forEach(k => {
     const wk = k.slice(0, 10);
-    if (wk >= MIN_WEEK) {
-      mergedTs[k] = Math.max(localTs[k] || 0, remoteTs[k] || 0);
+    if (wk < MIN_WEEK) return;
+    if (wk === MIN_WEEK) {
+      const parts = k.split("_");
+      const dIdx = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(dIdx) && dIdx < RESET_DAY_INDEX) return;
     }
+    mergedTs[k] = Math.max(localTs[k] || 0, remoteTs[k] || 0);
   });
   out._ts = mergedTs;
 
@@ -232,9 +248,15 @@ function mergeData(local, remote){
           merged[actId][i] = (tsA >= tsB) ? a[i] : b[i];
         }
       }
+      if(wk === MIN_WEEK && Array.isArray(merged[actId])){
+        for(let i = 0; i < RESET_DAY_INDEX; i++){
+          merged[actId][i] = false;
+        }
+      }
     });
     if(Object.keys(merged).length) out[wk]=merged;
   });
+  out._resetDate = RESET_DATE;
   // _labels / _sectionNames: un valore non-vuoto vince sempre su vuoto/assente (evita
   // che un dispositivo senza etichette sovrascriva quelle impostate sull'altro).
   // Solo quando entrambi hanno un valore non-vuoto vince il "più recente" (LWW normale).
@@ -595,7 +617,7 @@ function appliesToday(act, ti, dateNum, monday){
 const STREAK_GOAL = 0.6;   // un giorno conta per la serie se completi ≥ 60% delle attività in programma
 function currentStreak(){
   let count=0, isToday=true, d=new Date(); d.setHours(0,0,0,0);
-  while(fmtKey(d) >= MIN_WEEK){
+  while(fmtKey(d) >= RESET_DATE){
     const ds = dayStats(getMonday(d), todayIndex(d));
     if(ds.total === 0){ d=addDays(d,-1); isToday=false; continue; }   // niente in programma: giorno neutro
     if(ds.ratio >= STREAK_GOAL) count++;
@@ -607,7 +629,7 @@ function currentStreak(){
 function recentActiveDays(maxDays){
   // giorni recenti (escluso oggi) in cui hai completato almeno un'attività
   const out=[]; let d=addDays(new Date(),-1); d.setHours(0,0,0,0);
-  while(fmtKey(d) >= MIN_WEEK && out.length<maxDays){
+  while(fmtKey(d) >= RESET_DATE && out.length<maxDays){
     if(dayStats(getMonday(d), todayIndex(d)).done>0) out.push(new Date(d));
     d=addDays(d,-1);
   }
