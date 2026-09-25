@@ -2,16 +2,29 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Libreria Esercizi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Libreria Esercizi · CDF</title>
   <meta name="description" content="Organizza i tuoi esercizi per attività, traccia le esecuzioni e guarda i video di riferimento." />
+  <meta name="theme-color" content="#090d16" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=1790459000" />
+  <script>
+    (function(){
+      try {
+        var t = localStorage.getItem('cdfTheme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDark = t === 'dark' || (t !== 'light' && prefersDark);
+        if (isDark) document.documentElement.classList.add('dark');
+        var meta = document.querySelector("meta[name='theme-color']");
+        if (meta) meta.setAttribute('content', isDark ? '#090d16' : '#ffffff');
+      } catch(e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="app"></div>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=1790459000"></script>
 </body>
 </html>

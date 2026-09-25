@@ -38,10 +38,23 @@ const SECTION_HEX_MAP = {
   corsi: "#7c5cbf",
 };
 
-// Export per ES modules (Esercizi usa import)
+/* Nomi standard per le attività built-in */
+const DEFAULT_ACTIVITY_NAMES = {
+  respiro: "Respiro", esvoce: "Es Voce", schiena: "Schiena", bagua: "Ba Gua",
+  trapz: "Tra pz e altro", cfg: "CFG", esyoga: "Es Yoga",
+  kf: "KF", occhi: "Occhi", perin: "Perin",
+  collo: "Collo", polsi: "Polsi", allungamento: "Allungamento", seqex: "Seqex e P",
+  at_p: "Papimi", at_s: "S", at_focali: "Focali", at_l: "L",
+  argF: "Mulligan", argA: "ATM", argB: "Belotti", argC: "FCC",
+  argD: "Ipnovendita", argE: "Montemagno", argG: "Argomento G"
+};
+
+// Export per script classici e per ES modules
 if (typeof window !== "undefined") {
   window.BUILTIN_IDS = BUILTIN_IDS;
   window.SECTION_IDS = SECTION_IDS;
   window.SECTION_COLOR_MAP = SECTION_COLOR_MAP;
   window.SECTION_HEX_MAP = SECTION_HEX_MAP;
+  window.DEFAULT_ACTIVITY_NAMES = DEFAULT_ACTIVITY_NAMES;
 }
+export { BUILTIN_IDS, SECTION_IDS, SECTION_COLOR_MAP, SECTION_HEX_MAP, DEFAULT_ACTIVITY_NAMES };

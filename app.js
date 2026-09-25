@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790458000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790459000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -808,7 +808,7 @@ function renderToday(){
       const lbl = esc(actLabel(a.id));
       rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
               'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
-              '<span class="trlabel"><a class="trlabelname" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+lbl+'">'+lbl+'</a>'+tag+'</span>'+
+              '<span class="trlabel"><span class="trlabelname">'+lbl+'</span>'+tag+'</span>'+
               '<span class="trcheck">✓</span></div>';
     });
     const secTot = todays.length, ratio = secTot? secDone/secTot : 0;
@@ -929,7 +929,7 @@ function renderWeek(){
       const rs = actStats(viewMonday, a);
       let tag = (a.freq && a.freq < 7) ? '<span class="tag">'+a.freq+'×/sett</span>'
               : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>' : '');
-      html += '<tr><td class="lbl"><a class="exlink" href="'+exHref(a.id, s.id)+'" title="Esercizi · '+esc(actLabel(a.id))+'">'+esc(actLabel(a.id))+tag+'</a></td>';
+      html += '<tr><td class="lbl"><span class="lblname">'+esc(actLabel(a.id))+tag+'</span></td>';
 
       const actSet = activeDays(a, viewMonday);
       const DAYS_LONG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];

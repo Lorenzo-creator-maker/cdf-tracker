@@ -1,17 +1,14 @@
 /**
- * LIBRERIA ESERCIZI — collegata al CDF Tracker
+ * LIBRERIA ESERCIZI — Integrata con CDF Tracker
  * SPA Preact via CDN (nessun build step).
- * Le attività NON si creano qui: arrivano dal CDF Tracker tramite deep-link
- *   esercizi/#act=<id>&name=<nome>&color=<verde|blu|ambra|viola>
- * Qui si gestiscono solo gli ESERCIZI di ciascuna attività, indicizzati per id.
- * Sincronizzazione: basket Pantry dedicato "esercizi" (stesso Pantry ID del CDF,
- * letto da localStorage 'cdfPantryId' — condiviso perché stessa origine su GitHub Pages).
+ * Sincronizzazione: basket Pantry dedicato "esercizi" (stesso Pantry ID del CDF).
  */
 
 import { h, render, Fragment } from 'https://esm.sh/preact@10.22.0';
-import { useState, useEffect, useRef, useCallback } from 'https://esm.sh/preact@10.22.0/hooks';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'https://esm.sh/preact@10.22.0/hooks';
+import { BUILTIN_IDS, SECTION_IDS, SECTION_COLOR_MAP, SECTION_HEX_MAP, DEFAULT_ACTIVITY_NAMES } from '../shared.js';
 
-/* Chart.js da CDN */
+/* Chart.js lazy load da CDN */
 const loadChart = async () => {
   if (window.Chart) return window.Chart;
   const script = document.createElement('script');
@@ -21,42 +18,15 @@ const loadChart = async () => {
 };
 
 /* ============================================================
-   COSTANTI & HELPERS
+   COSTANTI & COLORI
    ============================================================ */
 const COLORS = {
-  verde:  { name: 'Fisica & Benessere', dot: '#2f9e6f', soft: '#e7f0ed', line: '#bcd6cf' },
-  blu:    { name: 'Lavoro',             dot: '#178fb8', soft: '#e3eef3', line: '#b6d4e0' },
-  ambra:  { name: 'Autotrattamento',    dot: '#e07b1a', soft: '#f6e9db', line: '#e7c6a0' },
-  viola:  { name: 'Corsi',              dot: '#7c5cbf', soft: '#ece6f6', line: '#cdbfe8' },
+  verde:  { name: 'Fisica & Benessere', dot: '#10b981', soft: 'rgba(16,185,129,0.14)', line: 'rgba(16,185,129,0.35)', hex: '#10b981' },
+  ambra:  { name: 'Autotrattamento',    dot: '#f59e0b', soft: 'rgba(245,158,11,0.14)', line: 'rgba(245,158,11,0.35)', hex: '#f59e0b' },
+  viola:  { name: 'Corsi',              dot: '#8b5cf6', soft: 'rgba(139,92,246,0.14)', line: 'rgba(139,92,246,0.35)', hex: '#8b5cf6' },
+  blu:    { name: 'Lavoro',             dot: '#0284c7', soft: 'rgba(2,132,199,0.14)', line: 'rgba(2,132,199,0.35)', hex: '#0284c7' },
 };
 const COLOR_KEYS = Object.keys(COLORS);
-
-/* IDs builtin del CDF Tracker — fonte canonica: ../shared.js
-   Usa window.BUILTIN_IDS se disponibile (caricato dal CDF), altrimenti fallback locale. */
-const BUILTIN_IDS = window.BUILTIN_IDS || new Set([
-  'respiro','esvoce','schiena','bagua','trapz','cfg','esyoga','kf','occhi','perin','collo','polsi','allungamento','seqex',
-  'at_p','at_s','at_focali','at_l',
-  'indicazioni','risprec','mail','promemoria','ordinefile','foto','ripasso','enagic','pagamenti',
-  'argA','argB','argC','argD','argE','argF','argG',
-]);
-
-/* Legge cdfTracker_v2 e restituisce il Set di actId validi nel CDF.
-   Ritorna null se i dati CDF non sono disponibili su questo dispositivo (no filtro). */
-function getCdfValidIds() {
-  try {
-    const raw = localStorage.getItem('cdfTracker_v2');
-    if (!raw) return null;
-    const d = JSON.parse(raw);
-    const ids = new Set(BUILTIN_IDS);
-    const deleted = d._deletedActivities || {};
-    const customs = d._customActivities || {};
-    for (const sid in customs) {
-      (customs[sid] || []).forEach(a => { if (a && a.id) ids.add(a.id); });
-    }
-    for (const id in deleted) ids.delete(id);
-    return ids;
-  } catch { return null; }
-}
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const daysSince = (iso) => {
@@ -64,123 +34,195 @@ const daysSince = (iso) => {
   const ms = Date.now() - new Date(iso + 'T00:00:00').getTime();
   return Math.floor(ms / 86400000);
 };
+
 const freshness = (iso) => {
   const d = daysSince(iso);
-  if (d === null) return { c: '#c2c2c2', label: 'mai fatto', bg: '#f4f4f4' };
-  if (d <= 0)  return { c: '#2f9e6f', label: 'oggi', bg: '#e7f0ed' };
-  if (d <= 3)  return { c: '#2f9e6f', label: `${d}g fa`, bg: '#e7f0ed' };
-  if (d <= 7)  return { c: '#e0a91a', label: `${d}g fa`, bg: '#fef9e7' };
-  return { c: '#d2552e', label: `${d}g fa`, bg: '#fdf0ec' };
+  if (d === null) return { c: '#94a3b8', label: 'mai fatto', bg: 'var(--fresh-gray-bg)' };
+  if (d <= 0)     return { c: '#10b981', label: 'oggi', bg: 'var(--fresh-green-bg)' };
+  if (d <= 3)     return { c: '#10b981', label: `${d}g fa`, bg: 'var(--fresh-green-bg)' };
+  if (d <= 7)     return { c: '#f59e0b', label: `${d}g fa`, bg: 'var(--fresh-yellow-bg)' };
+  return { c: '#ef4444', label: `${d}g fa (da ripassare)`, bg: 'var(--fresh-red-bg)' };
 };
+
 const avgTime = (exercise) => {
   const log = exercise.timeLog || [];
   if (!log.length) return null;
   const total = log.reduce((s, entry) => s + (entry.minutes || 0), 0);
   return Math.round(total / log.length);
 };
+
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-/* Drive link -> embed URL */
+/* Drive / Video embed URL */
 function driveEmbed(url) {
   if (!url) return null;
-  const m = url.match(/\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
+  const m = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  const m2 = url.match(/youtu(?:\.be\/|be\.com\/(?:watch\?v=|embed\/))([a-zA-Z0-9_-]+)/);
+  if (m2) return `https://www.youtube.com/embed/${m2[1]}`;
+  const m3 = url.match(/vimeo\.com\/(\d+)/);
+  if (m3) return `https://player.vimeo.com/video/${m3[1]}`;
   return null;
 }
 
 /* ============================================================
-   DATA LAYER — cache locale + sync Pantry (basket "esercizi")
-   Forma dello store:
-     { <actId>: { name, color, exercises: [ {id,name,videoUrl,notes,count,lastDone} ] },
-       _updatedAt: <ms> }
+   DATA LAYER & PANTRY SYNC
    ============================================================ */
-const PANTRY_KEY = 'cdfPantryId';        // condiviso col CDF (stessa origine)
-const EX_BASKET  = 'esercizi';           // basket Pantry dedicato agli esercizi
-const LOCAL_KEY  = 'exercise-data-v2';   // cache locale dello store
+const EX_KEY    = 'cdf_exercises_v1';
+const EX_BASKET = 'esercizi';
 
-const getPantryId = () => { try { return localStorage.getItem(PANTRY_KEY) || ''; } catch { return ''; } };
-const basketUrl   = () => 'https://getpantry.cloud/apiv1/pantry/' + encodeURIComponent(getPantryId()) + '/basket/' + EX_BASKET;
-const isMeta      = (k) => k.startsWith('_');
-function stripMeta(o) { if (!o || typeof o !== 'object') return o; const c = { ...o }; delete c._metadata; return c; }
-
-const localStore = {
-  get() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || {}; } catch { return {}; } },
-  set(v) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(v)); } catch (e) { console.error(e); } },
+const getPantryId = () => {
+  try {
+    let p = localStorage.getItem('cdfPantryId') || '';
+    p = p.trim().replace(/['"“”;<>\/\s]/g, '');
+    const m = p.match(/(?:pantry\/|id=)([0-9a-fA-F-]{10,})/i);
+    return m ? m[1] : p;
+  } catch { return ''; }
 };
 
-async function pullRemote() {
-  if (!getPantryId()) return null;
-  try {
-    const r = await fetch(basketUrl(), { method: 'GET', cache: 'no-store' });
-    if (r.status === 400 || r.status === 404) return null;            // basket non ancora creato
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return stripMeta(await r.json());
-  } catch (e) { return 'ERR'; }
-}
-async function pushRemote(store) {
-  if (!getPantryId()) return false;
-  try {
-    const r = await fetch(basketUrl(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(store) });
-    return r.ok;
-  } catch (e) { return false; }
+const localStore = {
+  get: () => {
+    try { return JSON.parse(localStorage.getItem(EX_KEY)) || {}; }
+    catch { return {}; }
+  },
+  set: (s) => {
+    try { localStorage.setItem(EX_KEY, JSON.stringify(s)); }
+    catch {}
+  }
+};
+
+const isMeta = (k) => k.startsWith('_');
+
+function stripMeta(o) {
+  if (!o || typeof o !== 'object') return o;
+  const c = { ...o };
+  delete c._metadata;
+  return c;
 }
 
-/* Tombstoni (come nel CDF Tracker): _deleted = { actId: ms } board eliminate,
-   _deletedEx = { exId: ms } esercizi eliminati. Vengono uniti PRIMA del resto
-   (vince il ms più recente) e sono AUTOREVOLI al merge: un id tombstonato non può
-   rientrare nello store, da qualunque dispositivo/copia cloud provenga. Senza questo,
-   il read-merge-write in persist() faceva risorgere ogni elemento appena cancellato. */
+/* Rimuove schede vuote con 0 esercizi create accidentalmente */
+function cleanEmptyActivities(store) {
+  let changed = false;
+  const next = { ...store };
+  for (const k of Object.keys(next)) {
+    if (isMeta(k)) continue;
+    const act = next[k];
+    if (!act || !Array.isArray(act.exercises) || act.exercises.length === 0) {
+      delete next[k];
+      changed = true;
+    }
+  }
+  return { cleaned: next, changed };
+}
+
+/* Legge tutte le attività censite nel CDF Tracker con nomi reali */
+function getCdfActivities() {
+  const result = [];
+  const seen = new Set();
+
+  // 1. Built-in da shared.js
+  const defaultNames = window.DEFAULT_ACTIVITY_NAMES || DEFAULT_ACTIVITY_NAMES || {};
+  for (const [id, name] of Object.entries(defaultNames)) {
+    let color = 'verde';
+    if (['at_p','at_s','at_focali','at_l'].includes(id)) color = 'ambra';
+    else if (id.startsWith('arg')) color = 'viola';
+    result.push({ id, name, color });
+    seen.add(id);
+  }
+
+  // 2. Custom da cdfTracker_v2
+  try {
+    const raw = localStorage.getItem('cdfTracker_v2');
+    if (raw) {
+      const d = JSON.parse(raw);
+      const customs = d._customActivities || {};
+      const labels = d._labels || {};
+      const secColor = { fisica: 'verde', autotrattamento: 'ambra', corsi: 'viola', lavoro: 'blu' };
+
+      for (const sid in customs) {
+        (customs[sid] || []).forEach(a => {
+          if (a && a.id && !seen.has(a.id)) {
+            const lbl = labels[a.id] || a.name || a.id;
+            result.push({ id: a.id, name: lbl, color: secColor[sid] || 'verde' });
+            seen.add(a.id);
+          }
+        });
+      }
+    }
+  } catch(e) {}
+
+  return result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function pullRemote() {
+  const pId = getPantryId();
+  if (!pId) return null;
+  try {
+    const res = await fetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return stripMeta(await res.json());
+  } catch { return 'ERR'; }
+}
+
+async function pushRemote(store) {
+  const pId = getPantryId();
+  if (!pId) return;
+  try {
+    await fetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(store),
+    });
+  } catch {}
+}
+
 function mergeTomb(a, b) {
   const out = { ...(a || {}) };
-  Object.keys(b || {}).forEach(id => { out[id] = Math.max(out[id] || 0, b[id] || 0); });
+  for (const [k, v] of Object.entries(b || {})) {
+    out[k] = Math.max(out[k] || 0, v || 0);
+  }
   return out;
 }
+
 function stripDeletedEx(entry, delEx) {
   if (!entry || !entry.exercises) return entry;
   return { ...entry, exercises: entry.exercises.filter(e => !delEx[e.id]) };
 }
 
-/* Unione non distruttiva di due store: union delle attività e degli esercizi (per id);
-   sui conflitti vince l'esercizio con conteggio più alto / lastDone più recente / priorità.
-   name/color vengono dal lato con _updatedAt più recente.
-   I tombstoni (_deleted / _deletedEx) escludono board ed esercizi eliminati. */
 function mergeStores(a, b) {
-  if (!a) return b || {};
-  if (!b) return a || {};
   const delAct = mergeTomb(a._deleted, b._deleted);
   const delEx  = mergeTomb(a._deletedEx, b._deletedEx);
-  const out = {};
-  const ids = new Set(Object.keys(a).concat(Object.keys(b)).filter(k => !isMeta(k)));
-  const aNewer = (a._updatedAt || 0) >= (b._updatedAt || 0);
-  ids.forEach(id => {
-    if (delAct[id]) return;                        // board eliminata: non risorge
-    const x = a[id], y = b[id];
-    if (!x) { out[id] = stripDeletedEx(y, delEx); return; }
-    if (!y) { out[id] = stripDeletedEx(x, delEx); return; }
+  const out = { _deleted: delAct, _deletedEx: delEx };
+
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => {
+    if (isMeta(k) || delAct[k]) return;
+    const ea = stripDeletedEx(a[k], delEx);
+    const eb = stripDeletedEx(b[k], delEx);
+    if (!ea) { out[k] = eb; return; }
+    if (!eb) { out[k] = ea; return; }
+
     const byId = {};
-    (x.exercises || []).forEach(e => { if (!delEx[e.id]) byId[e.id] = e; });
-    (y.exercises || []).forEach(e => {
-      if (delEx[e.id]) return;                      // esercizio eliminato: non risorge
-      const p = byId[e.id];
-      if (!p) { byId[e.id] = e; return; }
-      const eScore = [(e.count || 0), (e.lastDone || ''), (e.priority ?? -1)];
-      const pScore = [(p.count || 0), (p.lastDone || ''), (p.priority ?? -1)];
-      byId[e.id] = (
-        eScore[0] > pScore[0] ||
-        (eScore[0] === pScore[0] && eScore[1] > pScore[1]) ||
-        (eScore[0] === pScore[0] && eScore[1] === pScore[1] && eScore[2] > pScore[2])
-      ) ? e : p;
+    (ea.exercises || []).forEach(e => { byId[e.id] = e; });
+    (eb.exercises || []).forEach(e => {
+      if (delEx[e.id]) return;
+      const prev = byId[e.id];
+      if (!prev) { byId[e.id] = e; return; }
+      const winE = ((e.count || 0) > (prev.count || 0) ||
+        ((e.count || 0) === (prev.count || 0) && (e.lastDone || '') > (prev.lastDone || ''))) ? e : prev;
+      byId[e.id] = winE;
     });
-    const newer = aNewer ? x : y;
-    out[id] = { name: newer.name || x.name || y.name, color: newer.color || x.color || y.color, exercises: Object.values(byId) };
+
+    out[k] = {
+      name: eb.name || ea.name,
+      color: eb.color || ea.color,
+      exercises: Object.values(byId),
+    };
   });
-  out._updatedAt = Math.max(a._updatedAt || 0, b._updatedAt || 0);
-  if (Object.keys(delAct).length) out._deleted   = delAct;
-  if (Object.keys(delEx).length)  out._deletedEx = delEx;
   return out;
 }
 
-/* Deep-link: legge #act=..&name=..&color=.. */
+/* Deep link #act=..&name=..&color=.. */
 function parseHash() {
   const raw = location.hash.replace(/^#/, '');
   if (!raw) return null;
@@ -194,21 +236,9 @@ function parseHash() {
     color: COLORS[colorRaw] ? colorRaw : 'verde',
   };
 }
-/* Garantisce che lo store abbia una voce per l'attività del deep-link, aggiornandone nome/colore */
-function ensureEntry(store, seed) {
-  const s = { ...store };
-  const prev = s[seed.id];
-  s[seed.id] = { name: seed.name, color: seed.color, exercises: (prev && prev.exercises) || [] };
-  // Riapertura esplicita dal deep-link del CDF: togli un eventuale tombstone della board
-  // (l'utente la sta intenzionalmente riusando, quindi non deve restare cancellata).
-  if (s._deleted && s._deleted[seed.id]) {
-    const d = { ...s._deleted }; delete d[seed.id]; s._deleted = d;
-  }
-  return s;
-}
 
 /* ============================================================
-   SVG ICONS (inline, no external dep)
+   ICONS
    ============================================================ */
 const Icon = ({ d, size = 16, strokeWidth = 2, color, style: s }) =>
   h('svg', {
@@ -225,6 +255,8 @@ const Icon = ({ d, size = 16, strokeWidth = 2, color, style: s }) =>
 
 const icons = {
   back:    'M15 18l-6-6 6-6',
+  home:    'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10',
+  book:    'M4 19.5A2.5 2.5 0 0 1 6.5 17H20 M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z',
   plus:    'M12 5v14M5 12h14',
   play:    'M5 3l14 9-14 9V3z',
   pause:   'M6 4h4v16H6zM14 4h4v16h-4z',
@@ -237,7 +269,8 @@ const icons = {
   clock:   'M12 2a10 10 0 1 1 0 20A10 10 0 0 1 12 2zM12 6v6l4 2',
   video:   'M23 7l-7 5 7 5V7zM1 5h15a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H1z',
   arrow:   'M5 12h14M12 5l7 7-7 7',
-  grip:    'M9 5h2M13 5h2M9 12h2M13 12h2M9 19h2M13 19h2',
+  search:  'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35',
+  close:   'M18 6L6 18M6 6l12 12',
 };
 
 /* ============================================================
@@ -254,21 +287,21 @@ function ToastHost() {
 function showToast(msg) {
   if (!_toastSetState) return;
   const id = uid();
-  _toastSetState(ts => [...ts, { id, msg }]);
-  setTimeout(() => _toastSetState(ts => ts.filter(t => t.id !== id)), 2200);
+  _toastSetState(prev => [...prev, { id, msg }]);
+  setTimeout(() => {
+    if (_toastSetState) _toastSetState(prev => prev.filter(t => t.id !== id));
+  }, 2400);
 }
 
-/* ============================================================
-   CONFIRM DIALOG
-   ============================================================ */
+/* Dialog Conferma */
 function ConfirmDialog({ title, msg, onConfirm, onCancel }) {
-  return h('div', { className: 'confirm-overlay', onClick: onCancel },
-    h('div', { className: 'confirm-box', onClick: e => e.stopPropagation() },
-      h('div', { className: 'confirm-title' }, title),
-      h('div', { className: 'confirm-msg' }, msg),
-      h('div', { className: 'confirm-actions' },
+  return h('div', { className: 'modal-backdrop', onClick: onCancel },
+    h('div', { className: 'modal-card', onClick: e => e.stopPropagation() },
+      h('h3', { className: 'modal-title' }, title),
+      h('p', { className: 'modal-sub' }, msg),
+      h('div', { className: 'form-actions' },
         h('button', { className: 'btn-ghost', onClick: onCancel }, 'Annulla'),
-        h('button', { className: 'btn-danger', onClick: onConfirm }, 'Elimina'),
+        h('button', { className: 'btn-submit', style: { background: '#ef4444' }, onClick: onConfirm }, 'Elimina'),
       )
     )
   );
@@ -278,8 +311,10 @@ function ConfirmDialog({ title, msg, onConfirm, onCancel }) {
    APP ROOT
    ============================================================ */
 function App() {
-  const [store, setStore] = useState(null);   // null = loading
+  const [store, setStore] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [draftSeed, setDraftSeed] = useState(null); // transient activity for uncommitted deep link
+  const [searchQuery, setSearchQuery] = useState('');
   const [sortMode, setSortModeRaw] = useState(() => {
     try { return localStorage.getItem('exSortMode') || 'stale'; } catch { return 'stale'; }
   });
@@ -287,23 +322,60 @@ function App() {
     setSortModeRaw(m);
     try { localStorage.setItem('exSortMode', m); } catch {}
   }, []);
+
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      const t = localStorage.getItem('cdfTheme');
+      return t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    } catch { return true; }
+  });
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(prev => {
+      const next = !prev;
+      try { localStorage.setItem('cdfTheme', next ? 'dark' : 'light'); } catch {}
+      if (next) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+      const meta = document.querySelector("meta[name='theme-color']");
+      if (meta) meta.setAttribute('content', next ? '#090d16' : '#ffffff');
+      return next;
+    });
+  }, []);
+
   const [synced, setSynced] = useState(!!getPantryId());
   const pushTimer = useRef(null);
 
-  /* Load: cache locale subito, poi merge col remoto. Gestisce anche il deep-link. */
+  /* Caricamento iniziale + pulizia automatica schede vuote */
   useEffect(() => {
     const seed = parseHash();
-    let s = localStore.get();
-    if (seed) s = ensureEntry(s, seed);
-    setStore(s);
-    if (seed) setOpenId(seed.id);
+    let raw = localStore.get();
+
+    // Pulizia delle schede vuote con 0 esercizi create accidentalmente
+    const { cleaned, changed } = cleanEmptyActivities(raw);
+    if (changed) {
+      localStore.set(cleaned);
+      raw = cleaned;
+    }
+    setStore(raw);
+
+    if (seed) {
+      // Se esiste già nello store, aprila
+      if (raw[seed.id]) {
+        setOpenId(seed.id);
+      } else {
+        // Altrimenti salvala solo come bozza in memoria, NON nello store persistente
+        setDraftSeed(seed);
+        setOpenId(seed.id);
+      }
+    }
 
     (async () => {
       const remote = await pullRemote();
       if (remote && remote !== 'ERR') {
         setStore(prev => {
           let merged = mergeStores(prev || {}, remote);
-          if (seed) merged = ensureEntry(merged, seed);   // nome/colore freschi dal link
+          const cl = cleanEmptyActivities(merged);
+          merged = cl.cleaned;
           localStore.set(merged);
           return merged;
         });
@@ -311,18 +383,29 @@ function App() {
       setSynced(!!getPantryId());
     })();
 
-    /* Navigazione in entrata da CDF mentre l'app è già aperta */
     const onHash = () => {
       const sd = parseHash();
-      if (!sd) return;
-      setStore(prev => { const ns = ensureEntry(prev || {}, sd); localStore.set(ns); return ns; });
-      setOpenId(sd.id);
+      if (!sd) {
+        setOpenId(null);
+        setDraftSeed(null);
+        return;
+      }
+      setStore(prev => {
+        if (prev && prev[sd.id]) {
+          setOpenId(sd.id);
+          setDraftSeed(null);
+        } else {
+          setDraftSeed(sd);
+          setOpenId(sd.id);
+        }
+        return prev;
+      });
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  /* Salva: locale immediato + push remoto con debounce (read-merge-write). */
+  /* Salvataggio con debounce */
   const persist = useCallback((nextStore) => {
     nextStore._updatedAt = Date.now();
     localStore.set(nextStore);
@@ -339,31 +422,40 @@ function App() {
   }, []);
 
   if (!store) {
-    return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#a8a29e', fontFamily: 'Inter, sans-serif' } }, 'Carico la libreria…');
+    return h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: 'var(--text-muted)' } }, 'Caricamento libreria…');
   }
 
-  const open = (openId && store[openId]) ? { id: openId, ...store[openId] } : null;
+  // Risoluzione activity aperta (può essere una scheda nello store o una bozza transitoria)
+  const open = openId
+    ? (store[openId] ? { id: openId, ...store[openId] } : (draftSeed && draftSeed.id === openId ? { ...draftSeed, exercises: [] } : null))
+    : null;
 
   const updateActivity = (updated) => {
     const ns = { ...store };
     ns[updated.id] = { name: updated.name, color: updated.color, exercises: updated.exercises };
+    setDraftSeed(null); // ora è memorizzata nello store
     persist(ns);
   };
+
   const removeActivity = (id) => {
     const ns = { ...store };
     delete ns[id];
-    ns._deleted = { ...(ns._deleted || {}), [id]: Date.now() };   // tombstone: non risorge alla sync
+    ns._deleted = { ...(ns._deleted || {}), [id]: Date.now() };
     persist(ns);
+    if (openId === id) setOpenId(null);
   };
-  // Elimina un singolo esercizio da una board e ne registra il tombstone.
+
   const removeExercise = (actId, exId) => {
     const ns = { ...store };
     const act = ns[actId];
-    if (act) ns[actId] = { ...act, exercises: (act.exercises || []).filter(e => e.id !== exId) };
+    if (act) {
+      const remaining = (act.exercises || []).filter(e => e.id !== exId);
+      ns[actId] = { ...act, exercises: remaining };
+    }
     ns._deletedEx = { ...(ns._deletedEx || {}), [exId]: Date.now() };
     persist(ns);
   };
-  // Unisce tutti gli esercizi di sourceId in targetId, poi elimina la sorgente.
+
   const mergeActivity = (sourceId, targetId) => {
     if (sourceId === targetId) return;
     const ns = { ...store };
@@ -374,18 +466,19 @@ function App() {
     (src.exercises || []).forEach(e => {
       const p = byId[e.id];
       if (!p) { byId[e.id] = e; return; }
-      // vince chi ha count più alto, poi lastDone più recente
       byId[e.id] = ((e.count || 0) > (p.count || 0) ||
         ((e.count || 0) === (p.count || 0) && (e.lastDone || '') > (p.lastDone || ''))) ? e : p;
     });
     ns[targetId] = { name: tgt.name || src.name, color: tgt.color || src.color, exercises: Object.values(byId) };
     delete ns[sourceId];
-    ns._deleted = { ...(ns._deleted || {}), [sourceId]: Date.now() };  // il doppione resta eliminato
+    ns._deleted = { ...(ns._deleted || {}), [sourceId]: Date.now() };
     persist(ns);
   };
+
   const goHome = () => {
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     setOpenId(null);
+    setDraftSeed(null);
   };
 
   return h(Fragment, null,
@@ -396,201 +489,201 @@ function App() {
           onBack: goHome,
           onChange: updateActivity,
           onRemoveExercise: removeExercise,
+          isDark, toggleTheme,
         })
-      : h(Home, { store, synced, onOpen: setOpenId, onRemove: removeActivity, onMerge: mergeActivity }),
+      : h(Home, {
+          store, synced,
+          onOpen: setOpenId,
+          onRemove: removeActivity,
+          onMerge: mergeActivity,
+          onAddBoard: (act) => {
+            updateActivity({ id: act.id, name: act.name, color: act.color, exercises: [] });
+            setOpenId(act.id);
+          },
+          searchQuery, setSearchQuery,
+          isDark, toggleTheme,
+        }),
     h(ToastHost)
   );
 }
 
 /* ============================================================
-   ACTIVITY TIME CHART — grafico a torta del tempo totale per attività (Home)
+   HOME — Elenco attività della libreria
    ============================================================ */
-function ActivityTimeChart({ activities }) {
-  const canvasRef = useRef(null);
-  const chartRef = useRef(null);
+function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuery, setSearchQuery, isDark, toggleTheme }) {
+  const [confirm, setConfirm] = useState(null);
+  const [movingId, setMovingId] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    const data = activities
-      .map(a => {
-        const totalTime = (a.exercises || []).reduce((s, e) => {
-          const avg = avgTime(e);
-          return s + (avg || 0);
-        }, 0);
-        return { name: a.name, color: COLORS[a.color]?.dot || '#999', total: totalTime };
-      })
-      .filter(item => item.total > 0);
-
-    if (data.length === 0) return;
-
-    (async () => {
-      const Chart = await loadChart();
-      if (!Chart || !canvasRef.current) return;
-
-      if (chartRef.current) chartRef.current.destroy();
-
-      const ctx = canvasRef.current.getContext('2d');
-      chartRef.current = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: data.map(d => `${d.name} (${d.total}m)`),
-          datasets: [{
-            data: data.map(d => d.total),
-            backgroundColor: data.map(d => d.color),
-            borderColor: '#fff',
-            borderWidth: 2,
-          }],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: {
-            legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12, usePointStyle: true } },
-            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}m` } },
-          },
-        },
+  // Lista attività che hanno almeno 1 esercizio
+  const activeActivities = useMemo(() => {
+    return Object.keys(store)
+      .filter(k => !isMeta(k))
+      .map(id => ({ id, ...store[id] }))
+      .filter(a => Array.isArray(a.exercises) && a.exercises.length > 0)
+      .sort((a, b) => {
+        const ci = COLOR_KEYS.indexOf(a.color) - COLOR_KEYS.indexOf(b.color);
+        return ci !== 0 ? ci : (a.name || '').localeCompare(b.name || '');
       });
-    })();
+  }, [store]);
 
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [activities]);
+  const totalExercises = activeActivities.reduce((s, a) => s + (a.exercises ? a.exercises.length : 0), 0);
+  const totalDone = activeActivities.reduce((s, a) => s + (a.exercises || []).reduce((ss, e) => ss + (e.count || 0), 0), 0);
 
-  return h('div', { className: 'time-chart-container' },
-    h('p', { className: 'chart-title' }, '📊 Tempo per attività'),
-    h('canvas', { ref: canvasRef, id: 'activity-time-chart' })
-  );
-}
-
-/* ============================================================
-   HOME — attività che hanno esercizi (arrivano dal CDF)
-   ============================================================ */
-function Home({ store, synced, onOpen, onRemove, onMerge }) {
-  const [confirm, setConfirm] = useState(null);   // { id, name }
-  const [movingId, setMovingId] = useState(null); // id della card da spostare
-
-  const allActivities = Object.keys(store)
-    .filter(k => !isMeta(k))
-    .map(id => ({ id, ...store[id] }))
-    .sort((a, b) => {
-      const ci = COLOR_KEYS.indexOf(a.color) - COLOR_KEYS.indexOf(b.color);
-      return ci !== 0 ? ci : (a.name || '').localeCompare(b.name || '');
+  // Filtro di ricerca
+  const filteredActivities = useMemo(() => {
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (!q) return activeActivities;
+    return activeActivities.filter(a => {
+      if ((a.name || '').toLowerCase().includes(q)) return true;
+      return (a.exercises || []).some(e => (e.name || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q));
     });
+  }, [activeActivities, searchQuery]);
 
-  const validIds = getCdfValidIds();
-  const activities = validIds ? allActivities.filter(a => validIds.has(a.id)) : allActivities;
-  const orphanCount = allActivities.length - activities.length;
-
-  const totalExercises = activities.reduce((s, a) => s + (a.exercises ? a.exercises.length : 0), 0);
-  const totalDone = activities.reduce((s, a) => s + (a.exercises || []).reduce((ss, e) => ss + (e.count || 0), 0), 0);
-
-  const doRemove = () => { onRemove(confirm.id); setConfirm(null); showToast('Attività rimossa dalla libreria'); };
+  const doRemove = () => {
+    onRemove(confirm.id);
+    setConfirm(null);
+    showToast('Scheda attività rimossa');
+  };
 
   return h('div', { className: 'page' },
     h('header', { className: 'header' },
-      h('a', { className: 'header-back', href: '../' },
-        h(Icon, { d: icons.back, size: 16 }),
-        'ATTIVITA'
+      h('div', { className: 'header-top-nav' },
+        h('a', { className: 'nav-btn home-btn', href: '../', title: 'Torna all\'app principale ATTIVITÀ' },
+          h(Icon, { d: icons.home, size: 16 }),
+          h('span', null, '← Torna a CDF (Home)')
+        ),
+        h('div', { className: 'header-actions' },
+          h('button', { className: 'theme-toggle-btn', onClick: toggleTheme, title: isDark ? 'Passa a tema chiaro' : 'Passa a tema scuro' },
+            isDark ? '☀️' : '🌙'
+          ),
+          synced && h('span', { className: 'sync-badge ok', title: 'Sincronizzazione Cloud Pantry attiva' },
+            h('span', { className: 'dot ok', style: { width: 6, height: 6 } }),
+            'Sync'
+          )
+        )
       ),
       h('div', { className: 'header-title-row' },
-        h('h1', { style: { fontSize: '20px', fontWeight: 700, letterSpacing: '-0.4px' } }, '📚 Libreria Esercizi'),
+        h('h1', null, '📚 Libreria Esercizi'),
       ),
-      activities.length > 0
-        ? h('p', { className: 'header-sub' },
-            `${activities.length} attività · ${totalExercises} esercizi · ${totalDone} esecuzioni`)
-        : h('p', { className: 'header-sub' }, synced ? 'Sincronizzato col cloud' : 'Solo su questo dispositivo'),
+      h('div', { className: 'header-stats-chips' },
+        h('span', { className: 'stat-chip' }, `${activeActivities.length} attività`),
+        h('span', { className: 'stat-chip' }, `${totalExercises} esercizi`),
+        h('span', { className: 'stat-chip' }, `${totalDone} esecuzioni`)
+      )
+    ),
+
+    h('div', { className: 'search-toolbar' },
+      h('div', { className: 'search-box' },
+        h('span', { className: 'search-icon' }, h(Icon, { d: icons.search, size: 16 })),
+        h('input', {
+          type: 'text',
+          value: searchQuery,
+          placeholder: 'Cerca esercizio o attività…',
+          onInput: e => setSearchQuery(e.target.value),
+        }),
+        searchQuery && h('button', { className: 'search-clear', onClick: () => setSearchQuery('') }, '✕')
+      ),
+      h('div', { className: 'action-bar' },
+        h('button', { className: 'btn-primary-action', onClick: () => setShowAddModal(true) },
+          h(Icon, { d: icons.plus, size: 15, color: '#fff' }),
+          'Nuova scheda per un’attività'
+        )
+      )
     ),
 
     h('div', { className: 'content' },
-      activities.length === 0 && h('div', { className: 'empty' },
-        h('div', { className: 'empty-icon' }, '🏋️'),
+      filteredActivities.length === 0 && h('div', { className: 'empty-box' },
+        h('div', { className: 'empty-box-icon' }, '🏋️'),
         h('p', null,
-          'Nessun esercizio ancora.', h('br'),
-          'Apri ', h('a', { href: '../', style: { color: '#2f9e6f', fontWeight: 600 } }, 'ATTIVITA'),
-          ' e tocca il nome di un’attività per aggiungere i suoi esercizi qui.'
+          searchQuery
+            ? 'Nessun esercizio trovato con questa ricerca.'
+            : 'Nessuna scheda con esercizi attivi ancora.',
+          h('br'),
+          h('span', { style: { fontSize: '13px' } }, 'Tocca "Nuova scheda per un’attività" per iniziare ad aggiungere esercizi.')
         )
       ),
 
-      activities.length > 0 && h('p', { className: 'home-hint' },
-        'Le attività arrivano da ATTIVITA. Tocca un’attività per gestirne gli esercizi.'
-      ),
-
-      activities.length > 0 && h(ActivityTimeChart, { activities }),
-
-      orphanCount > 0 && h('p', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' } },
-        `${orphanCount} ${orphanCount === 1 ? 'attività rimossa' : 'attività rimosse'} da ATTIVITA`
-      ),
-
-      ...activities.map(a => {
+      filteredActivities.map(a => {
         const c = COLORS[a.color] || COLORS.verde;
         const exs = a.exercises || [];
         const done = exs.reduce((s, e) => s + (e.count || 0), 0);
         const stale = exs.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
         const totalAvgTime = exs.reduce((s, e) => { const avg = avgTime(e); return s + (avg || 0); }, 0);
         const isMoving = movingId === a.id;
-        const otherActivities = activities.filter(x => x.id !== a.id);
-        return h('div', { key: a.id, className: 'activity-card' },
-          h('button', {
-            id: `activity-${a.id}`,
-            className: 'activity-btn',
-            onClick: () => { if (!isMoving) onOpen(a.id); },
-          },
-            h('span', { className: 'dot', style: { background: c.dot } }),
-            h('div', { className: 'activity-info' },
-              h('div', { className: 'activity-name' }, a.name),
-              h('div', { style: { display: 'flex', gap: '6px', marginTop: '5px', flexWrap: 'wrap' } },
-                h('span', { className: 'stat-pill' }, `${exs.length} esercizi`),
-                h('span', { className: 'stat-pill' }, `${done}× eseguiti`),
-                totalAvgTime > 0 && h('span', { className: 'stat-pill', style: { color: c.dot, background: c.soft } }, `⏱ ${totalAvgTime}m`),
-                stale > 0 && h('span', { className: 'stat-pill', style: { color: '#d2552e', background: '#fdf0ec' } }, `${stale} da ripassare`),
+        const otherActivities = activeActivities.filter(x => x.id !== a.id);
+
+        return h('div', {
+          key: a.id,
+          className: 'activity-card',
+          style: { '--card-accent': c.dot },
+        },
+          h('div', { className: 'activity-card-row' },
+            h('button', {
+              id: `activity-${a.id}`,
+              className: 'activity-btn',
+              onClick: () => { if (!isMoving) onOpen(a.id); },
+            },
+              h('span', { className: 'dot', style: { background: c.dot } }),
+              h('div', { className: 'activity-info' },
+                h('div', { className: 'activity-name' }, a.name),
+                h('div', { className: 'activity-chips' },
+                  h('span', { className: 'stat-pill' }, `${exs.length} esercizi`),
+                  h('span', { className: 'stat-pill' }, `${done}× fatti`),
+                  totalAvgTime > 0 && h('span', { className: 'stat-pill' }, `⏱ ~${totalAvgTime}m`),
+                  stale > 0 && h('span', { className: 'stat-pill stale' }, `${stale} da ripassare`),
+                )
               ),
+              h(Icon, { d: icons.arrow, size: 16, style: { marginLeft: 'auto', color: 'var(--text-muted)' } })
             ),
-            h(Icon, { d: icons.arrow, size: 16, style: { marginLeft: 'auto', color: '#d6d3ce' } }),
+            h('div', { className: 'activity-actions' },
+              h('button', {
+                className: 'icon-btn',
+                title: isMoving ? 'Annulla spostamento' : 'Sposta esercizi in un\'altra scheda',
+                onClick: () => setMovingId(isMoving ? null : a.id),
+              }, isMoving ? '✕' : h(Icon, { d: 'M5 12h14M13 6l6 6-6 6', size: 15 })),
+              h('button', {
+                className: 'icon-btn danger',
+                title: 'Rimuovi scheda e i suoi esercizi',
+                onClick: () => setConfirm({ id: a.id, name: a.name }),
+              }, h(Icon, { d: icons.trash, size: 15 }))
+            )
           ),
-          h('div', { style: { display: 'flex', gap: '4px' } },
-            h('button', {
-              className: 'icon-btn',
-              title: isMoving ? 'Annulla spostamento' : 'Sposta esercizi in un\'altra attività',
-              style: isMoving ? { color: '#2563eb' } : {},
-              onClick: () => setMovingId(isMoving ? null : a.id),
-            }, isMoving ? '✕' : h(Icon, { d: 'M5 12h14M13 6l6 6-6 6', size: 15 })),
-            h('button', {
-              className: 'icon-btn',
-              title: 'Rimuovi dalla libreria (gli esercizi vengono cancellati)',
-              onClick: () => setConfirm({ id: a.id, name: a.name }),
-            }, h(Icon, { d: icons.trash, size: 15 })),
-          ),
-          isMoving && h('div', { style: { padding: '8px 12px 10px', borderTop: '1px solid #f0ede8' } },
-            h('p', { style: { fontSize: '12px', color: '#78716c', margin: '0 0 6px' } },
-              'Sposta tutti gli esercizi di "' + a.name + '" in:'
+          isMoving && h('div', { style: { marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' } },
+            h('p', { style: { fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: 6 } },
+              `Sposta gli esercizi di "${a.name}" in:`
             ),
             otherActivities.length === 0
-              ? h('p', { style: { fontSize: '12px', color: '#a8a29e', fontStyle: 'italic' } }, 'Nessun\'altra attività disponibile.')
+              ? h('p', { style: { fontSize: '12px', color: 'var(--text-muted)' } }, 'Nessun\'altra scheda disponibile.')
               : otherActivities.map(t =>
                   h('button', {
                     key: t.id,
-                    style: {
-                      display: 'block', width: '100%', textAlign: 'left',
-                      padding: '7px 10px', margin: '3px 0',
-                      background: '#f7f6f3', border: '1px solid #e8e4de',
-                      borderRadius: '8px', fontSize: '13px', fontWeight: 500,
-                      cursor: 'pointer',
-                    },
+                    className: 'btn-ghost',
+                    style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: 4 },
                     onClick: () => {
                       onMerge(a.id, t.id);
                       setMovingId(null);
-                      showToast('Esercizi spostati in "' + t.name + '" ✓');
+                      showToast(`Esercizi spostati in "${t.name}" ✓`);
                     },
                   }, t.name)
                 )
           )
         );
-      }),
+      })
     ),
 
+    /* Modal Nuova Scheda */
+    showAddModal && h(NewBoardModal, {
+      onClose: () => setShowAddModal(false),
+      onCreate: (act) => {
+        setShowAddModal(false);
+        onAddBoard(act);
+      },
+    }),
+
     confirm && h(ConfirmDialog, {
-      title: 'Rimuovi attività',
-      msg: `Rimuovere "${confirm.name}" e tutti i suoi esercizi dalla libreria? L’attività resta in ATTIVITA.`,
+      title: 'Rimuovi scheda',
+      msg: `Vuoi rimuovere la scheda "${confirm.name}" e tutti i suoi esercizi dalla libreria?`,
       onConfirm: doRemove,
       onCancel: () => setConfirm(null),
     })
@@ -598,9 +691,97 @@ function Home({ store, synced, onOpen, onRemove, onMerge }) {
 }
 
 /* ============================================================
-   BOARD — bacheca esercizi di una attività
+   MODAL: NUOVA SCHEDA PER ATTIVITÀ
    ============================================================ */
-function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExercise }) {
+function NewBoardModal({ onClose, onCreate }) {
+  const cdfList = useMemo(() => getCdfActivities(), []);
+  const [selectedId, setSelectedId] = useState(cdfList[0]?.id || 'custom');
+  const [customName, setCustomName] = useState('');
+  const [selectedColor, setSelectedColor] = useState('verde');
+
+  const handleSelect = (e) => {
+    const id = e.target.value;
+    setSelectedId(id);
+    const found = cdfList.find(x => x.id === id);
+    if (found) {
+      setSelectedColor(found.color || 'verde');
+    }
+  };
+
+  const handleCreate = () => {
+    if (selectedId === 'custom') {
+      if (!customName.trim()) return;
+      onCreate({
+        id: 'cust_ex_' + uid(),
+        name: customName.trim(),
+        color: selectedColor,
+      });
+    } else {
+      const found = cdfList.find(x => x.id === selectedId);
+      if (!found) return;
+      onCreate({
+        id: found.id,
+        name: found.name,
+        color: found.color || selectedColor,
+      });
+    }
+  };
+
+  return h('div', { className: 'modal-backdrop', onClick: onClose },
+    h('div', { className: 'modal-card', onClick: e => e.stopPropagation() },
+      h('h3', { className: 'modal-title' }, 'Nuova Scheda Esercizi'),
+      h('p', { className: 'modal-sub' }, 'Seleziona un’attività dal tuo CDF Tracker o inseriscine una personalizzata:'),
+
+      h('div', { style: { marginBottom: 12 } },
+        h('label', { className: 'form-label' }, 'Attività di riferimento'),
+        h('select', { className: 'form-input', value: selectedId, onChange: handleSelect },
+          cdfList.map(a => h('option', { key: a.id, value: a.id }, `${a.name} (${COLORS[a.color]?.name || a.color})`)),
+          h('option', { value: 'custom' }, '➕ Altra attività personalizzata…')
+        )
+      ),
+
+      selectedId === 'custom' && h('div', { style: { marginBottom: 12 } },
+        h('label', { className: 'form-label' }, 'Nome nuova attività'),
+        h('input', {
+          type: 'text',
+          className: 'form-input',
+          placeholder: 'Es. Esercizi Respirazione, Postura…',
+          value: customName,
+          onInput: e => setCustomName(e.target.value),
+        })
+      ),
+
+      h('div', { style: { marginBottom: 16 } },
+        h('label', { className: 'form-label' }, 'Categoria / Colore'),
+        h('div', { style: { display: 'flex', gap: 8, marginTop: 4 } },
+          COLOR_KEYS.map(k => h('button', {
+            key: k,
+            type: 'button',
+            onClick: () => setSelectedColor(k),
+            style: {
+              width: 28, height: 28, borderRadius: '50%',
+              background: COLORS[k].dot,
+              border: selectedColor === k ? '3px solid #fff' : '2px solid transparent',
+              boxShadow: selectedColor === k ? '0 0 0 2px ' + COLORS[k].dot : 'none',
+              cursor: 'pointer',
+            },
+            title: COLORS[k].name,
+          }))
+        )
+      ),
+
+      h('div', { className: 'form-actions' },
+        h('button', { className: 'btn-ghost', onClick: onClose }, 'Annulla'),
+        h('button', { className: 'btn-submit', onClick: handleCreate }, 'Crea ed entra')
+      )
+    )
+  );
+}
+
+/* ============================================================
+   BOARD — Bacheca esercizi di una attività
+   ============================================================ */
+function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExercise, isDark, toggleTheme }) {
   const c = COLORS[activity.color] || COLORS.verde;
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -610,20 +791,23 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
 
   const staleKey = (e) => (daysSince(e.lastDone) ?? 1e9);
   const prioKey  = (e) => (typeof e.priority === 'number' ? e.priority : -Infinity);
-  const sorted = [...activity.exercises];
+
+  const sorted = [...(activity.exercises || [])];
   if (sortMode === 'most')          sorted.sort((a, b) => (b.count || 0) - (a.count || 0));
   else if (sortMode === 'stale')    sorted.sort((a, b) => staleKey(b) - staleKey(a));
   else if (sortMode === 'priority') sorted.sort((a, b) => (prioKey(b) - prioKey(a)) || (staleKey(b) - staleKey(a)));
+  else if (sortMode === 'name')     sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const markDone = (id) => {
-    update(activity.exercises.map(e =>
+    update((activity.exercises || []).map(e =>
       e.id === id ? { ...e, count: (e.count || 0) + 1, lastDone: todayISO() } : e
     ));
-    showToast('Esercizio segnato ✓');
+    showToast('Esercizio completato ✓');
   };
+
   const saveTimeForActivity = (minutes) => {
     const today = todayISO();
-    update(activity.exercises.map(e => {
+    update((activity.exercises || []).map(e => {
       const log = e.timeLog || [];
       const today_entry = log.find(entry => entry.date === today);
       const updated_log = today_entry
@@ -633,69 +817,96 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
     }));
     showToast(`⏱ +${minutes} min registrati`);
   };
+
   const undo = (id) => {
-    update(activity.exercises.map(e =>
+    update((activity.exercises || []).map(e =>
       e.id === id ? { ...e, count: Math.max(0, (e.count || 0) - 1) } : e
     ));
   };
+
   const remove = (id, name) => setConfirm({ id, name });
   const doRemove = () => {
-    onRemoveExercise(activity.id, confirm.id);   // rimuove + tombstone (così non risorge)
+    onRemoveExercise(activity.id, confirm.id);
     setConfirm(null);
     showToast('Esercizio eliminato');
   };
+
   const saveExercise = (ex) => {
-    const exists = activity.exercises.some(e => e.id === ex.id);
+    const list = activity.exercises || [];
+    const exists = list.some(e => e.id === ex.id);
     update(exists
-      ? activity.exercises.map(e => e.id === ex.id ? ex : e)
-      : [...activity.exercises, ex]
+      ? list.map(e => e.id === ex.id ? ex : e)
+      : [...list, ex]
     );
-    setAdding(false); setEditId(null);
+    setAdding(false);
+    setEditId(null);
     showToast(exists ? 'Esercizio aggiornato ✓' : 'Esercizio aggiunto ✓');
   };
 
-  const doneCount = activity.exercises.reduce((s, e) => s + (e.count || 0), 0);
+  const doneCount = (activity.exercises || []).reduce((s, e) => s + (e.count || 0), 0);
 
   return h('div', { className: 'page' },
     h('header', { className: 'header' },
-      h('button', { className: 'header-back', onClick: onBack },
-        h(Icon, { d: icons.back, size: 16 }),
-        'Tutte le attività'
+      h('div', { className: 'header-top-nav' },
+        h('div', { className: 'header-nav-group' },
+          h('a', { className: 'nav-btn home-btn', href: '../', title: 'Torna subito alla schermata principale di CDF' },
+            h(Icon, { d: icons.home, size: 15 }),
+            h('span', null, '← Home CDF')
+          ),
+          h('button', { className: 'nav-btn library-btn', onClick: onBack, title: 'Torna all\'elenco di tutte le schede' },
+            h(Icon, { d: icons.book, size: 15 }),
+            h('span', null, '📚 Tutte le schede')
+          )
+        ),
+        h('div', { className: 'header-actions' },
+          h('button', { className: 'theme-toggle-btn', onClick: toggleTheme, title: isDark ? 'Passa a tema chiaro' : 'Passa a tema scuro' },
+            isDark ? '☀️' : '🌙'
+          )
+        )
       ),
+
       h('div', { className: 'header-title-row' },
         h('span', { className: 'dot', style: { background: c.dot, width: 14, height: 14 } }),
-        h('h1', null, activity.name),
+        h('h1', null, activity.name)
       ),
       h('p', { className: 'header-sub' },
-        `${activity.exercises.length} esercizi · ${doneCount} esecuzioni totali`
-      ),
+        `${(activity.exercises || []).length} esercizi · ${doneCount} esecuzioni totali`
+      )
     ),
 
+    /* Timer compatto */
     h(Timer, { accent: c.dot, key: activity.id, onSaveTime: saveTimeForActivity }),
-    h(TimeChart, { exercises: activity.exercises, color: c.dot }),
 
-    /* sort bar */
+    /* Sort Bar */
     h('div', { className: 'sort-bar' },
-      h(Icon, { d: icons.sort, size: 14, style: { color: '#a8a29e', flexShrink: 0 } }),
-      [['stale', 'Da ripassare'], ['priority', 'Priorità'], ['most', 'Più fatti'], ['manual', 'Mio ordine']].map(([k, label]) =>
+      h(Icon, { d: icons.sort, size: 14, style: { color: 'var(--text-muted)', flexShrink: 0, marginRight: 2 } }),
+      [
+        ['stale', '⚡ Da ripassare'],
+        ['priority', '⭐ Priorità'],
+        ['most', '🔥 Più fatti'],
+        ['name', 'A-Z Nome'],
+      ].map(([k, label]) =>
         h('button', {
           key: k,
           className: 'sort-pill' + (sortMode === k ? ' active' : ''),
-          style: sortMode === k ? { background: c.soft, borderColor: c.line } : {},
+          style: sortMode === k ? { background: c.soft, borderColor: c.line, color: c.dot } : {},
           onClick: () => setSortMode(k),
         }, label)
       )
     ),
 
+    /* Elenco Esercizi */
     h('div', { className: 'content' },
-      activity.exercises.length === 0 && !adding && h('div', { className: 'empty' },
-        h('div', { className: 'empty-icon' }, '🎯'),
-        h('p', null, 'Nessun esercizio ancora.', h('br'), 'Aggiungine uno qui sotto.')
+      (activity.exercises || []).length === 0 && !adding && h('div', { className: 'empty-box' },
+        h('div', { className: 'empty-box-icon' }, '🎯'),
+        h('p', null, 'Nessun esercizio ancora.', h('br'), 'Aggiungine uno con il pulsante qui sotto.')
       ),
 
-      ...sorted.map(e =>
+      sorted.map(e =>
         h(ExerciseRow, {
-          key: e.id, ex: e, accent: c,
+          key: e.id,
+          ex: e,
+          accent: c,
           onDone: () => markDone(e.id),
           onUndo: () => undo(e.id),
           onEdit: () => { setEditId(e.id); setAdding(false); },
@@ -715,7 +926,7 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
 
       !adding && !editId && h('button', {
         id: 'add-exercise-btn',
-        className: 'add-trigger',
+        className: 'add-trigger-btn',
         onClick: () => setAdding(true),
       },
         h(Icon, { d: icons.plus, size: 16 }),
@@ -751,14 +962,11 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
 
   return h('div', { className: 'exercise-row' },
     h('div', { className: 'exercise-row-main' },
-      /* freshness indicator */
+      /* Freshness indicator */
       h('div', {
+        className: 'freshness-indicator',
         style: {
-          width: 10, height: 10,
-          borderRadius: '50%',
           background: f.c,
-          marginTop: 5,
-          flexShrink: 0,
           boxShadow: `0 0 0 3px ${f.bg}`,
         },
         title: f.label,
@@ -766,50 +974,50 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
 
       h('div', { className: 'exercise-info' },
         h('button', {
-          className: 'exercise-name exercise-name-btn',
+          className: 'exercise-name-btn',
           title: 'Tocca per modificare',
           onClick: onEdit,
         }, ex.name),
         ex.notes && h('div', { className: 'exercise-notes' }, ex.notes),
-        h('div', { className: 'exercise-stats' },
-          h('span', null, `${ex.count || 0}× eseguito`),
-          avgTime(ex) && h('span', null, `⏱ ${avgTime(ex)}m`),
+        h('div', { className: 'exercise-meta-row' },
+          h('span', { className: 'ex-tag' }, `${ex.count || 0}× fatto`),
+          avgTime(ex) && h('span', { className: 'ex-tag' }, `⏱ ~${avgTime(ex)}m`),
           (typeof ex.priority === 'number') && h('span', {
-            className: 'freshness-badge',
+            className: 'ex-tag',
             style: { background: accent.soft, color: accent.dot },
           }, `priorità ${ex.priority}`),
           h('span', {
-            className: 'freshness-badge',
+            className: 'ex-tag freshness',
             style: { background: f.bg, color: f.c },
           }, f.label),
-        ),
+        )
       ),
 
       h('div', { className: 'exercise-actions' },
         h('button', {
-          className: 'done-btn ripple',
+          className: 'done-btn',
           style: { background: accent.dot },
           onClick: onDone,
           title: 'Segna come fatto',
         },
-          h(Icon, { d: icons.check, size: 13, color: '#fff' }),
+          h(Icon, { d: icons.check, size: 14, color: '#fff' }),
           'Fatto'
         ),
         h('div', { className: 'mini-actions' },
           ex.videoUrl && h('button', {
-            className: 'mini-btn play',
+            className: 'mini-btn video-btn',
             title: showVideo ? 'Nascondi video' : 'Mostra video',
             onClick: () => setShowVideo(v => !v),
-          }, h(Icon, { d: showVideo ? icons.minus : icons.video, size: 14 })),
-          h('button', { className: 'mini-btn', title: 'Annulla esecuzione', onClick: onUndo },
+          }, h(Icon, { d: icons.video, size: 14 })),
+          h('button', { className: 'mini-btn', title: 'Annulla esecuzione (-1)', onClick: onUndo },
             h(Icon, { d: icons.minus, size: 14 })
           ),
-          h('button', { className: 'mini-btn edit', title: 'Modifica', onClick: onEdit },
+          h('button', { className: 'mini-btn', title: 'Modifica esercizio', onClick: onEdit },
             h(Icon, { d: icons.pencil, size: 14 })
           ),
-          h('button', { className: 'mini-btn danger', title: 'Elimina', onClick: onRemove },
+          h('button', { className: 'mini-btn danger', title: 'Elimina esercizio', onClick: onRemove },
             h(Icon, { d: icons.trash, size: 14 })
-          ),
+          )
         )
       )
     ),
@@ -819,21 +1027,21 @@ function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, 
         ? h('div', { className: 'video-wrapper' },
             h('iframe', { src: embed, allow: 'autoplay', allowFullScreen: true, title: ex.name })
           )
-        : h('p', { className: 'video-no-preview' }, 'Anteprima non disponibile per questo link.'),
+        : h('p', { style: { fontSize: '13px', color: 'var(--text-muted)' } }, 'Anteprima non disponibile.'),
       h('a', {
         href: ex.videoUrl, target: '_blank', rel: 'noreferrer',
         className: 'video-link',
         style: { color: accent.dot },
       },
-        h(Icon, { d: icons.play, size: 12 }),
-        'Apri video'
+        h(Icon, { d: icons.play, size: 13 }),
+        'Apri video in nuova scheda'
       )
     )
   );
 }
 
 /* ============================================================
-   EXERCISE FORM
+   EXERCISE FORM (CREAZIONE / MODIFICA)
    ============================================================ */
 function ExerciseForm({ initial, accent, onSave, onCancel }) {
   const [name, setName] = useState(initial?.name || '');
@@ -856,123 +1064,58 @@ function ExerciseForm({ initial, accent, onSave, onCancel }) {
       priority: Number.isFinite(prNum) ? prNum : null,
     });
   };
-  const handleKey = (e) => { if (e.key === 'Enter' && e.ctrlKey) save(); };
 
-  return h('div', {
-    className: 'add-card',
-    style: { borderColor: accent.line, borderWidth: '2px' },
-  },
-    h('div', { className: 'form-group' },
+  return h('div', { className: 'exercise-form-card' },
+    h('div', null,
+      h('label', { className: 'form-label' }, 'Nome esercizio *'),
       h('input', {
-        id: initial ? `edit-exercise-${initial.id}` : 'new-exercise-name',
-        autoFocus: true,
+        type: 'text',
         className: 'form-input',
+        placeholder: 'Es. Stretching bicipite femorale, Squat…',
         value: name,
-        placeholder: 'Nome esercizio…',
         onInput: e => setName(e.target.value),
-        onKeyDown: handleKey,
-      }),
+        autoFocus: true,
+      })
+    ),
+    h('div', null,
+      h('label', { className: 'form-label' }, 'Link Video (Drive, YouTube, Vimeo)'),
       h('input', {
-        id: initial ? `edit-exercise-video-${initial.id}` : 'new-exercise-video',
+        type: 'url',
         className: 'form-input',
+        placeholder: 'https://…',
         value: videoUrl,
-        placeholder: 'Link video Google Drive (opzionale)',
         onInput: e => setVideoUrl(e.target.value),
-      }),
-      h('input', {
-        id: initial ? `edit-exercise-notes-${initial.id}` : 'new-exercise-notes',
-        className: 'form-input',
+      })
+    ),
+    h('div', null,
+      h('label', { className: 'form-label' }, 'Istruzioni / Serie / Ripetizioni / Note'),
+      h('textarea', {
+        className: 'form-input form-textarea',
+        placeholder: 'Es. 3 serie da 10 rip con 60s di recupero…',
         value: notes,
-        placeholder: 'Note: serie / ripetizioni (opzionale)',
         onInput: e => setNotes(e.target.value),
-        onKeyDown: handleKey,
-      }),
+      })
+    ),
+    h('div', null,
+      h('label', { className: 'form-label' }, 'Priorità (opzionale, es. 1 alta, 2 media…)'),
       h('input', {
-        id: initial ? `edit-exercise-priority-${initial.id}` : 'new-exercise-priority',
-        className: 'form-input',
         type: 'number',
-        inputMode: 'numeric',
+        className: 'form-input',
+        placeholder: 'Es. 1',
         value: priority,
-        placeholder: 'Priorità: numero più alto = più in alto (opzionale)',
         onInput: e => setPriority(e.target.value),
-        onKeyDown: handleKey,
-      }),
-      h('p', { style: { fontSize: '11px', color: '#a8a29e' } }, 'Ctrl+Enter per salvare'),
-      h('div', { className: 'form-actions' },
-        h('button', {
-          className: 'btn-primary ripple',
-          style: { background: accent.dot },
-          onClick: save,
-        }, initial ? 'Aggiorna' : '+ Aggiungi'),
-        h('button', { className: 'btn-ghost', onClick: onCancel }, 'Annulla'),
-      )
+        style: { width: '120px' },
+      })
+    ),
+    h('div', { className: 'form-actions' },
+      h('button', { className: 'btn-ghost', onClick: onCancel }, 'Annulla'),
+      h('button', { className: 'btn-submit', style: { background: accent.dot }, onClick: save }, 'Salva esercizio')
     )
   );
 }
 
 /* ============================================================
-   TIME CHART — grafico a torta dei tempi per esercizio
-   ============================================================ */
-function TimeChart({ exercises, color }) {
-  const canvasRef = useRef(null);
-  const chartRef = useRef(null);
-
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    const data = exercises
-      .map(ex => ({ name: ex.name, avg: avgTime(ex), color }))
-      .filter(item => item.avg !== null);
-
-    if (data.length === 0) return;
-
-    (async () => {
-      const Chart = await loadChart();
-      if (!Chart || !canvasRef.current) return;
-
-      if (chartRef.current) chartRef.current.destroy();
-
-      const colors = [
-        '#2f9e6f', '#178fb8', '#e07b1a', '#7c5cbf',
-        '#ec4899', '#f59e0b', '#10b981', '#6366f1',
-      ];
-
-      const ctx = canvasRef.current.getContext('2d');
-      chartRef.current = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: data.map(d => `${d.name} (${d.avg}m)`),
-          datasets: [{
-            data: data.map(d => d.avg),
-            backgroundColor: colors.slice(0, data.length),
-            borderColor: '#fff',
-            borderWidth: 2,
-          }],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: true,
-          plugins: {
-            legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12, usePointStyle: true } },
-            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}m` } },
-          },
-        },
-      });
-    })();
-
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [exercises]);
-
-  const hasData = exercises.some(ex => avgTime(ex) !== null);
-  if (!hasData) return null;
-
-  return h('div', { className: 'time-chart-container' },
-    h('canvas', { ref: canvasRef, id: 'time-chart' })
-  );
-}
-
-/* ============================================================
-   TIMER
+   TIMER DIGITALE
    ============================================================ */
 function Timer({ accent, onSaveTime }) {
   const [sec, setSec] = useState(0);
@@ -993,41 +1136,37 @@ function Timer({ accent, onSaveTime }) {
   };
 
   const saveAndReset = () => {
-    const minutes = Math.round(sec / 60);
-    if (minutes > 0 && onSaveTime) {
-      onSaveTime(minutes);
-    }
+    const minutes = Math.max(1, Math.round(sec / 60));
+    if (onSaveTime) onSaveTime(minutes);
     setRunning(false);
     setSec(0);
   };
 
-  return h('div', { className: 'timer' + (running ? ' timer-running' : '') },
-    h(Icon, { d: icons.clock, size: 16, style: { color: running ? accent : '#a8a29e', flexShrink: 0 } }),
-    h('span', { className: 'timer-display' }, fmt(sec)),
-    h('div', { className: 'timer-actions' },
+  return h('div', { className: 'timer-card' },
+    h('div', { className: 'timer-left' },
+      h(Icon, { d: icons.clock, size: 20, style: { color: running ? accent : 'var(--text-muted)' } }),
+      h('span', { className: 'timer-display' }, fmt(sec))
+    ),
+    h('div', { className: 'timer-controls' },
       h('button', {
-        id: 'timer-toggle-btn',
-        className: 'timer-btn ripple',
+        className: 'timer-toggle-btn',
         style: { background: accent },
         onClick: () => setRunning(r => !r),
       },
-        h(Icon, { d: running ? icons.pause : icons.play, size: 13, color: '#fff' }),
-        running ? ' Pausa' : ' Avvia'
+        h(Icon, { d: running ? icons.pause : icons.play, size: 14, color: '#fff' }),
+        running ? 'Pausa' : 'Avvia'
       ),
       sec > 0 && h('button', {
-        id: 'timer-save-btn',
-        className: 'timer-save',
-        style: { color: accent, borderColor: accent },
+        className: 'timer-save-btn',
         onClick: saveAndReset,
-        title: 'Salva tempo e azzera',
+        title: 'Registra tempo e azzera',
       },
-        h(Icon, { d: icons.check, size: 13 }),
-        ' Salva'
+        h(Icon, { d: icons.check, size: 14 }),
+        'Salva'
       ),
       h('button', {
-        id: 'timer-reset-btn',
-        className: 'timer-reset',
-        title: 'Azzera',
+        className: 'timer-reset-btn',
+        title: 'Azzera cronometro',
         onClick: () => { setRunning(false); setSec(0); },
       }, h(Icon, { d: icons.reset, size: 15 }))
     )
