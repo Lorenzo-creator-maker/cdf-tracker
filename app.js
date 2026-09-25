@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790240000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790458000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -68,12 +68,62 @@ function exHref(actId, secId){
          "&color="+(SECTION_COLOR[secId]||"verde");
 }
 
+/* ===================== Funzioni per Condivisione & Pantry ===================== */
+function cleanPantryId(input){
+  if(!input) return "";
+  let s = String(input).trim();
+  const m = s.match(/(?:pantry\/|id=)([0-9a-fA-F-]{10,})/i);
+  if(m) return m[1];
+  s = s.replace(/['"“”;<>\/\s]/g, "").trim();
+  return s;
+}
+
+function encodeSnapshot(obj){
+  try {
+    const json = JSON.stringify(obj);
+    const bytes = new TextEncoder().encode(json);
+    let binary = "";
+    for(let i=0; i<bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return encodeURIComponent(btoa(binary));
+  } catch(e){ return ""; }
+}
+
+function decodeSnapshot(str){
+  try {
+    const binary = atob(decodeURIComponent(str));
+    const bytes = new Uint8Array(binary.length);
+    for(let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json);
+  } catch(e){ return null; }
+}
+
+function getShareUrl(type){
+  const base = "https://lorenzo-creator-maker.github.io/cdf-tracker/";
+  if(type === "live" && pantryId){
+    return base + "?share=" + encodeURIComponent(pantryId) + "&view=stats";
+  }
+  const snapObj = {
+    _labels: data._labels || {},
+    _customActivities: data._customActivities || {},
+    _hiddenActivities: data._hiddenActivities || {},
+    _activityTypes: data._activityTypes || {},
+    _order: data._order || {},
+    _updatedAt: data._updatedAt || Date.now(),
+    _resetDate: RESET_DATE
+  };
+  Object.keys(data).forEach(k => {
+    if(!k.startsWith("_") && k >= MIN_WEEK) snapObj[k] = data[k];
+  });
+  return base + "?snapshot=" + encodeSnapshot(snapObj) + "&view=stats";
+}
+
 /* ===================== Stato + persistenza locale ===================== */
 let data = {};
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch(e){ data = {}; }
 const MIN_WEEK = "2026-09-21";
-const RESET_DATE = "2026-09-24";
-const RESET_DAY_INDEX = 3; // Giovedì 24 Settembre 2026 (0=Lun, 1=Mar, 2=Mer, 3=Gio)
+const RESET_DATE = "2026-09-26";
+const RESET_DAY_INDEX = 5; // Sabato 26 Settembre 2026 (0=Lun, 1=Mar, 2=Mer, 3=Gio, 4=Ven, 5=Sab)
 
 let pruned = false;
 
@@ -96,9 +146,9 @@ if (data._ts) {
   });
 }
 
-// 3. Reset iniziale "ex novo da oggi" (24/09/2026):
-//    Azzera i giorni prima di oggi (Lun 21, Mar 22, Mer 23) e oggi per iniziare puliti al 100%.
-//    Il controllo su data._resetDate evita che nei giorni successivi (venerdì, sabato...) vengano cancellati i giorni precedenti.
+// 3. Reset iniziale "ex novo da domani" (26/09/2026):
+//    Azzera i giorni prima di domani (Lun 21..Ven 25) e prepara lo storico a ripartire pulito.
+//    Il controllo su data._resetDate evita che nei giorni successivi vengano cancellati i giorni precedenti.
 if (data._resetDate !== RESET_DATE) {
   if (data[MIN_WEEK]) {
     Object.keys(data[MIN_WEEK]).forEach(actId => {
@@ -133,13 +183,33 @@ if(!data._activityTypes)    data._activityTypes = {};     // { actId: {type,day?
 let pantryId = "";
 try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
 
+/* ===================== Modalità Condivisione (Share link / Sola lettura) ===================== */
+const urlParams = new URLSearchParams(window.location.search);
+const sharePantryId = urlParams.get("share") || (urlParams.get("view") === "stats" ? urlParams.get("pantry") : null);
+const snapshotParam = urlParams.get("snapshot");
+const isSharedMode = !!(sharePantryId || snapshotParam || urlParams.get("view") === "stats");
+
+if(isSharedMode){
+  document.body.classList.add("is-shared");
+  const sb = document.getElementById("sharedBanner");
+  if(sb) sb.classList.remove("hidden");
+  const st = document.getElementById("tabSettings");
+  if(st) st.classList.add("hidden");
+  if(snapshotParam){
+    const decoded = decodeSnapshot(snapshotParam);
+    if(decoded && typeof decoded === "object"){
+      data = decoded;
+    }
+  }
+}
+
 let todayViewDate = new Date(); // Data mostrata nel tab Oggi
 
 /* Sezioni richiuse nel tab Oggi — preferenza per-dispositivo, non sincronizzata */
 const TFOLD_KEY = "cdfTodayFold";
 let todayFold = {};
 try{ todayFold = JSON.parse(localStorage.getItem(TFOLD_KEY)) || {}; }catch(e){ todayFold = {}; }
-function saveFold(){ try{ localStorage.setItem(TFOLD_KEY, JSON.stringify(todayFold)); }catch(e){} }
+function saveFold(){ if(!isSharedMode) try{ localStorage.setItem(TFOLD_KEY, JSON.stringify(todayFold)); }catch(e){} }
 
 // Migrazione dati vecchi (odd -> freq:3, weekly -> freq:1)
 if(data._activityTypes){
@@ -157,21 +227,28 @@ if(data._customActivities){
     });
   }
 }
-let initialLoading = !!(pantryId && !hasRealData(data));
+let initialLoading = !!((sharePantryId || (pantryId && !hasRealData(data))));
 
 function saveLocal(){
+  if(isSharedMode) return;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
   catch(e){ alert("Impossibile salvare in locale. Esci dalla navigazione privata."); }
 }
 
 /* ===================== Sincronizzazione (Pantry) ===================== */
-let syncState = pantryId ? "ok" : "off";
+let syncState = isSharedMode ? "ok" : (pantryId ? "ok" : "off");
 let pushTimer = null;
 
 function pantryUrl(){ return "https://getpantry.cloud/apiv1/pantry/"+encodeURIComponent(pantryId)+"/basket/"+BASKET; }
 function setSync(s){ syncState=s; paintSync(); }
 function paintSync(){
   const dot=document.getElementById("syncDot"), txt=document.getElementById("syncTxt");
+  if(!dot || !txt) return;
+  if(isSharedMode){
+    dot.className="dot ok";
+    txt.textContent = "Sola lettura";
+    return;
+  }
   dot.className="dot "+syncState;
   txt.textContent = syncState==="ok"?"Sincronizzato":
                     syncState==="saving"?"Salvataggio…":
@@ -305,7 +382,7 @@ function mergeData(local, remote){
 function safeRender(){ const a=document.activeElement; if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA")) return; render(); }
 function hasRealData(o){ return Object.keys(o||{}).some(k=>!k.startsWith("_") && o[k] && Object.values(o[k]).some(arr=>Array.isArray(arr)&&arr.some(Boolean))); }
 async function doPush(){
-  if(!pantryId) return;
+  if(isSharedMode || !pantryId) return false;
   setSync("saving");
   try{
     const remote = await pullRemote();              // leggi-unisci-scrivi: non sovrascrivo il cloud
@@ -322,20 +399,29 @@ async function doPush(){
   }catch(e){ setSync("error"); return false; }
 }
 function schedulePush(){
+  if(isSharedMode) return;
   if(!pantryId){ saveLocal(); return; }
   saveLocal(); setSync("saving");
   clearTimeout(pushTimer);
   pushTimer = setTimeout(doPush, 500);
 }
 async function reconcile(){
-  if(!pantryId){ setSync("off"); return; }
+  if(!pantryId){ setSync(isSharedMode ? "ok" : "off"); return; }
   setSync("syncing");
   try {
     const remote = await pullRemote();
     initialLoading = false;
-    if(remote==="ERR" || remote==="NOPANTRY"){ setSync("error"); render(); return; }
+    if(remote==="ERR" || remote==="NOPANTRY"){
+      setSync("error");
+      if(isSharedMode){
+        const hv = document.getElementById("historyView");
+        if(hv) hv.innerHTML = '<div class="hcard"><div class="empty">❌ Impossibile caricare le statistiche condivise.<br>Il codice di condivisione non è valido o getpantry.cloud non risponde.</div></div>';
+      }
+      render();
+      return;
+    }
     const before = JSON.stringify(data);
-    data = mergeData(data, remote);
+    data = isSharedMode ? (stripMeta(remote) || {}) : mergeData(data, remote);
     if(!data._labels)           data._labels={};
     if(!data._sectionNames)     data._sectionNames={};
     if(!data._customActivities) data._customActivities={};
@@ -347,10 +433,14 @@ async function reconcile(){
       const customs=(data._customActivities&&data._customActivities[sec.id])||[];
       customs.forEach(a=>{ if(!DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
     }
-    if(JSON.stringify(data)!==before){ saveLocal(); }
+    if(!isSharedMode && JSON.stringify(data)!==before){ saveLocal(); }
     render();
-    if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush();  // allinea il cloud al merge
-    else setSync("ok");
+    if(!isSharedMode){
+      if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush();  // allinea il cloud al merge
+      else setSync("ok");
+    } else {
+      setSync("ok");
+    }
   } catch(e) {
     initialLoading = false;
     setSync("error");
@@ -503,6 +593,7 @@ function repairData(){
 
 function getCell(key, actId, day){ const w=data[key]; if(!w) return false; const a=w[actId]; return !!(a && a[day]); }
 function setCell(key, actId, day, val){
+  if(isSharedMode) return;
   if(!data[key]) data[key]={};
   if(!data[key][actId]) data[key][actId]=[false,false,false,false,false,false,false];
   data[key][actId][day]=val;
@@ -1000,7 +1091,19 @@ function renderHistory(){
   }
   donut += '</div>';
 
-  document.getElementById("historyView").innerHTML = donut + chart + heat + worst;
+  let shareBar = '';
+  if(!isSharedMode){
+    shareBar = '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;">'+
+               '<button class="share-head-btn" id="shareHistBtn">📤 Condividi statistiche</button>'+
+               '</div>';
+  }
+
+  document.getElementById("historyView").innerHTML = shareBar + donut + chart + heat + worst;
+
+  if(!isSharedMode){
+    const shBtn = document.getElementById("shareHistBtn");
+    if(shBtn) shBtn.onclick = onShareStats;
+  }
 
   // Event listener frecce storico
   const prevBtnHist = document.getElementById("histPrev");
@@ -1145,6 +1248,16 @@ function renderSettings(){
        '<button class="btn ghost" id="resetHistoryBtn" style="color:#ef4444;border-color:rgba(239,68,68,0.35);width:100%;">🧹 Riparti da oggi (azzera vecchio storico)</button></div>'+
        '</div></div>'; // end acc-content, acc-item
 
+  // Sezione 4: Condivisione Statistiche
+  h += '<div class="acc-item'+(settingsOpenSections.has('share')?' open':'')+'" data-acckey="share"><button class="acc-header" onclick="toggleAccSection(\'share\')">🔗 Condividi Statistiche (Sola Lettura)</button><div class="acc-content">';
+  h += '<p class="sub" style="margin-top:12px">Invia un link per mostrare a un\'altra persona il tuo avanzamento, costanza e completamento in tempo reale. La visualizzazione è in <b>sola lettura protetta</b> (non potrà modificare né cancellare nulla).</p>'+
+       '<div class="row-btns">'+
+       '<button class="btn primary" id="shareLiveBtn">📋 Copia link statistiche '+(pantryId ? '(Live Cloud)' : '(Istantanea)')+'</button>'+
+       (pantryId ? '<button class="btn ghost" id="shareSnapBtn">📸 Copia link istantanea</button>' : '')+
+       '</div>'+
+       '<div id="shareMsg" style="margin-top:8px;"></div>'+
+       '</div></div>'; // end acc-content, acc-item
+
   h += '</div>'; // chiusura .accordion
 
   document.getElementById("settingsView").innerHTML = h;
@@ -1152,6 +1265,22 @@ function renderSettings(){
   if(pantryId) document.getElementById("discSync").onclick = onDiscSync;
   document.getElementById("resetNames").onclick = onResetNames;
   document.getElementById("resetHistoryBtn").onclick = onResetHistoryFromToday;
+  const shareLiveBtn = document.getElementById("shareLiveBtn");
+  if(shareLiveBtn){
+    shareLiveBtn.onclick = function(){
+      if(pantryId){
+        copyShareLink("live");
+      } else {
+        copyShareLink("snap");
+      }
+    };
+  }
+  const shareSnapBtn = document.getElementById("shareSnapBtn");
+  if(shareSnapBtn){
+    shareSnapBtn.onclick = function(){
+      copyShareLink("snap");
+    };
+  }
   // Auto-save nomi con debounce: ogni modifica salva automaticamente dopo 800ms
   let _nameTimer = null;
   function autoSaveNames(){
@@ -1233,14 +1362,64 @@ function renderSettings(){
 }
 function msg(id, text, kind){ document.getElementById(id).innerHTML = '<div class="status-msg '+kind+'">'+text+'</div>'; }
 
+function onShareStats(){
+  copyShareLink(pantryId ? "live" : "snap");
+}
+function copyShareLink(type){
+  const isLive = type === "live" && pantryId;
+  const url = getShareUrl(isLive ? "live" : "snapshot");
+  navigator.clipboard.writeText(url).then(()=>{
+    const txt = isLive
+      ? "✅ Link live copiato! Chi lo apre visualizzerà le tue statistiche in tempo reale in sola lettura."
+      : "✅ Link istantanea copiato! Chi lo apre visualizzerà un'istantanea delle tue statistiche in sola lettura.";
+    msg("shareMsg", txt, "ok");
+    showUndoToast(isLive ? "✅ Link live copiato!" : "✅ Link snapshot copiato!");
+    alert("🔗 Link per la condivisione copiato negli appunti!\n\n" + url + "\n\nChi riceve questo link potrà vedere le tue statistiche e il tuo avanzamento in tempo reale in sola lettura protetta (senza poter modificare o cancellare nulla).");
+  }).catch(()=>{
+    prompt("Copia questo link da condividere:", url);
+  });
+}
+
 async function onSaveSync(){
-  const v = document.getElementById("pantryInput").value.trim();
-  if(!v){ msg("syncMsg","Incolla prima il codice Pantry.","err"); return; }
-  pantryId = v; try{ localStorage.setItem(PANTRY_KEY, v); }catch(e){}
-  msg("syncMsg","Verifica in corso…","info"); setSync("saving");
+  const raw = document.getElementById("pantryInput").value;
+  if(!raw || !raw.trim()){ msg("syncMsg","Incolla prima il codice Pantry.","err"); return; }
+
+  if(raw.includes("@")){
+    msg("syncMsg","⚠️ <b>Hai inserito un indirizzo email, non il Pantry ID.</b><br>Dopo aver inserito l'email su getpantry.cloud, copia il codice identificativo lungo (es. <code>84ef3b21-...</code>) e incollalo qui.","err");
+    return;
+  }
+
+  const v = cleanPantryId(raw);
+  if(!v || v.length < 8){
+    msg("syncMsg","⚠️ Il codice inserito non sembra un Pantry ID valido. Controlla e riprova.","err");
+    return;
+  }
+
+  pantryId = v;
+  document.getElementById("pantryInput").value = v;
+  try{ localStorage.setItem(PANTRY_KEY, v); }catch(e){}
+  msg("syncMsg","Verifica del codice con getpantry.cloud in corso…","info");
+  setSync("saving");
+
   const remote = await pullRemote();
-  if(remote==="NOPANTRY"){ msg("syncMsg","❌ Questo codice su getpantry.cloud non esiste. Copialo e incollalo di nuovo dalla pagina del tuo pantry.","err"); setSync("error"); return; }
-  if(remote==="ERR"){ msg("syncMsg","❌ Codice non valido o niente connessione. Controlla e riprova.","err"); setSync("error"); return; }
+  if(remote==="NOPANTRY"){
+    msg("syncMsg",
+      "❌ <b>Questo codice su getpantry.cloud non esiste.</b><br><br>"+
+      "Possibili cause:<br>"+
+      "• Se il codice è stato generato tempo fa, Pantry potrebbe averlo eliminato per inattività.<br>"+
+      "• Mancano dei caratteri o è incompleto.<br><br>"+
+      "👉 <b>Come risolvere subito:</b> apri <a class='link' href='https://getpantry.cloud' target='_blank' rel='noopener'>getpantry.cloud</a>, inserisci la tua email, clicca <b>Get a Pantry</b>. Copia il nuovo Pantry ID generato e incollalo qui.",
+      "err"
+    );
+    setSync("error");
+    return;
+  }
+  if(remote==="ERR"){
+    msg("syncMsg","❌ Errore di connessione a getpantry.cloud. Controlla la rete e riprova.","err");
+    setSync("error");
+    return;
+  }
+
   data = mergeData(data, remote);
   if(!data._labels)           data._labels={};
   if(!data._sectionNames)     data._sectionNames={};
@@ -1249,11 +1428,9 @@ async function onSaveSync(){
   if(!data._deletedActivities) data._deletedActivities={};
   saveLocal(); render();
   msg("syncMsg","Salvataggio nel cloud…","info");
-  // Si aspetta la scrittura vera prima di dire «sincronizzato»: prima la
-  // scritta verde partiva subito, qualunque cosa rispondesse il cloud.
   const scritto = await doPush();
   if(scritto) msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
-  else msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva.","err");
+  else msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva. Riprova tra poco.","err");
 }
 function onDiscSync(){
   if(!confirm("Disconnettere la sincronizzazione su questo dispositivo? I dati locali restano.")) return;
@@ -1445,8 +1622,10 @@ function render(){
   document.getElementById("weekView").classList.toggle("hidden", view!=="week");
   document.getElementById("historyView").classList.toggle("hidden", view!=="history");
   document.getElementById("settingsView").classList.toggle("hidden", view!=="settings");
-  document.getElementById("footHint").innerHTML = (view==="settings") ? "" :
-    "I dati sono salvati su questo dispositivo" + (pantryId? " e sincronizzati nel cloud." : ". Attiva la sincronizzazione in ⚙️ per condividerli tra Mac e iPhone.");
+  document.getElementById("footHint").innerHTML = isSharedMode
+    ? "👁️ Visualizzazione in sola lettura condivisa. Nessuna modifica ai dati personali."
+    : ((view==="settings") ? "" :
+      "I dati sono salvati su questo dispositivo" + (pantryId? " e sincronizzati nel cloud." : ". Attiva la sincronizzazione in ⚙️ per condividerli tra Mac e iPhone."));
   if(initialLoading){
     const activeEl = document.getElementById(view + "View");
     if(activeEl) activeEl.innerHTML = renderLoadingSkeleton();
@@ -1460,6 +1639,7 @@ function render(){
 
 /* ===================== Eventi ===================== */
 document.getElementById("weekView").addEventListener("click", function(e){
+  if(isSharedMode) return;
   const btn=e.target.closest(".cell"); if(!btn || !btn.dataset.act) return;
   const key=fmtKey(viewMonday), actId=btn.dataset.act, day=parseInt(btn.dataset.day,10);
   setCell(key, actId, day, !getCell(key,actId,day));
@@ -1472,6 +1652,7 @@ document.getElementById("todayView").addEventListener("click", function(e){
     todayFold[fh.dataset.fold] = !todayFold[fh.dataset.fold];
     saveFold(); renderToday(); return;
   }
+  if(isSharedMode) return;
   const row=e.target.closest(".focuschip") || e.target.closest(".todayrow");
   if(!row || !row.dataset.act) return;
   const key=fmtKey(getMonday(todayViewDate)), actId=row.dataset.act, day=parseInt(row.dataset.day,10);
@@ -1496,6 +1677,7 @@ document.getElementById("todayView").addEventListener("click", function(e){
   }
 });
 document.getElementById("settingsView").addEventListener("click", function(e){
+  if(isSharedMode) return;
   const b=e.target.closest(".movebtn"); if(!b || b.disabled) return;
   moveActivity(b.dataset.msec, b.dataset.mact, parseInt(b.dataset.mdir,10));
 });
@@ -1506,11 +1688,11 @@ document.getElementById("prev").onclick=()=>{
 };
 document.getElementById("next").onclick=()=>{ viewMonday=addDays(viewMonday,7); render(); };
 document.getElementById("todayBtn").onclick=()=>{ viewMonday=getMonday(new Date()); render(); };
-document.getElementById("syncBadge").onclick=()=>{ view="settings"; setTabs(); render(); };
+document.getElementById("syncBadge").onclick=()=>{ if(isSharedMode) return; view="settings"; setTabs(); render(); };
 document.getElementById("tabToday").onclick=()=>{ view="today"; todayViewDate = new Date(); setTabs(); render(); };
 document.getElementById("tabWeek").onclick=()=>{ view="week"; setTabs(); render(); };
 document.getElementById("tabHistory").onclick=()=>{ view="history"; setTabs(); render(); };
-document.getElementById("tabSettings").onclick=()=>{ view="settings"; setTabs(); render(); };
+document.getElementById("tabSettings").onclick=()=>{ if(isSharedMode) return; view="settings"; setTabs(); render(); };
 document.getElementById("themeToggle").onclick=function(){
   let saved = null;
   try{ saved = localStorage.getItem(THEME_KEY); }catch(e){}
@@ -1525,11 +1707,14 @@ function setTabs(){
     document.getElementById(id).classList.toggle("active", isActive);
     document.getElementById(id).setAttribute("aria-selected", isActive ? "true" : "false");
   });
+  if(isSharedMode){
+    document.getElementById("tabSettings").classList.add("hidden");
+  }
 }
 document.addEventListener("visibilitychange", ()=>{ 
   if(document.visibilityState==="visible" && pantryId){
     reconcile(); 
-  } else if(document.visibilityState==="hidden" && pantryId){
+  } else if(document.visibilityState==="hidden" && pantryId && !isSharedMode){
     if (pushTimer) { clearTimeout(pushTimer); doPush(); }
   }
 });
@@ -1538,6 +1723,7 @@ document.addEventListener("visibilitychange", ()=>{
 /* All'apertura controlla se sul sito c'è una versione più recente e, in tal caso,
    ricarica automaticamente (con cache-buster) così Mac e iPhone restano aggiornati. */
 async function checkUpdate(){
+  if(isSharedMode) return;
   try{
     // APP_VERSION vive in app.js (non più in index.html): va letta da qui.
     const txt = await fetch("app.js?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
@@ -1550,12 +1736,16 @@ async function checkUpdate(){
 }
 
 /* ===================== Avvio ===================== */
-if(repairData()) saveLocal();   // pulizia fantasmi/doppioni custom all'apertura
+if(!isSharedMode && repairData()) saveLocal();   // pulizia fantasmi/doppioni custom all'apertura
 // Popola subito DEFAULT_LABEL con i nomi delle custom GIÀ salvate, così il primo
 // render di "Oggi" mostra i nomi e non gli id "cust_…" (reconcile lo rifà dopo dalla sync).
 for(const sec of SECTIONS){
   const cs=(data._customActivities&&data._customActivities[sec.id])||[];
   cs.forEach(a=>{ if(a && a.id && a.name && !DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
+}
+if(isSharedMode && sharePantryId){
+  pantryId = cleanPantryId(sharePantryId);
+  initialLoading = true;
 }
 render();
 if(pantryId) reconcile();

@@ -331,3 +331,18 @@ a.exlink:active{opacity:.55;}
   border-radius: 16px;
 }
 
+/* ===================== Banner & Stili Modalità Condivisa ===================== */
+.shared-banner{background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(14,165,233,.12));border:1px solid rgba(37,99,235,.3);border-radius:12px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.sb-content{display:flex;align-items:center;gap:8px;}
+.sb-icon{font-size:20px;line-height:1;}
+.sb-text strong{display:block;font-size:13px;font-weight:700;color:var(--ink);}
+.sb-text small{font-size:11px;color:var(--muted);}
+.sb-badge{background:#2563eb;color:#fff;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:3px 7px;border-radius:6px;white-space:nowrap;}
+.share-head-btn{display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 12px;font-size:12px;font-weight:700;color:var(--ink);cursor:pointer;transition:background .15s;}
+.share-head-btn:active{background:var(--line);}
+body.is-shared .cell{pointer-events:none!important;cursor:default!important;}
+body.is-shared .todayrow .trcheck{pointer-events:none!important;cursor:default!important;}
+body.is-shared .todayrow{cursor:default!important;}
+body.is-shared .focuschip{pointer-events:none!important;cursor:default!important;}
+
+
