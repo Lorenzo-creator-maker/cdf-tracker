@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790459000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790459500";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";

@@ -49,7 +49,7 @@ const DEFAULT_ACTIVITY_NAMES = {
   argD: "Ipnovendita", argE: "Montemagno", argG: "Argomento G"
 };
 
-// Export per script classici e per ES modules
+// Export su window per script classici
 if (typeof window !== "undefined") {
   window.BUILTIN_IDS = BUILTIN_IDS;
   window.SECTION_IDS = SECTION_IDS;
@@ -57,4 +57,3 @@ if (typeof window !== "undefined") {
   window.SECTION_HEX_MAP = SECTION_HEX_MAP;
   window.DEFAULT_ACTIVITY_NAMES = DEFAULT_ACTIVITY_NAMES;
 }
-export { BUILTIN_IDS, SECTION_IDS, SECTION_COLOR_MAP, SECTION_HEX_MAP, DEFAULT_ACTIVITY_NAMES };

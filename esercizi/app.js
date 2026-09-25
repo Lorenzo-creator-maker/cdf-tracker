@@ -6,7 +6,22 @@
 
 import { h, render, Fragment } from 'https://esm.sh/preact@10.22.0';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'https://esm.sh/preact@10.22.0/hooks';
-import { BUILTIN_IDS, SECTION_IDS, SECTION_COLOR_MAP, SECTION_HEX_MAP, DEFAULT_ACTIVITY_NAMES } from '../shared.js';
+
+/* Fallback costanti condivise con il CDF Tracker */
+const BUILTIN_IDS = (typeof window !== 'undefined' && window.BUILTIN_IDS) || new Set([
+  'respiro','esvoce','schiena','bagua','trapz','cfg','esyoga','kf','occhi','perin','collo','polsi','allungamento','seqex',
+  'at_p','at_s','at_focali','at_l',
+  'argF','argA','argB','argC','argD','argE','argG'
+]);
+const DEFAULT_ACTIVITY_NAMES = (typeof window !== 'undefined' && window.DEFAULT_ACTIVITY_NAMES) || {
+  respiro: "Respiro", esvoce: "Es Voce", schiena: "Schiena", bagua: "Ba Gua",
+  trapz: "Tra pz e altro", cfg: "CFG", esyoga: "Es Yoga",
+  kf: "KF", occhi: "Occhi", perin: "Perin",
+  collo: "Collo", polsi: "Polsi", allungamento: "Allungamento", seqex: "Seqex e P",
+  at_p: "Papimi", at_s: "S", at_focali: "Focali", at_l: "L",
+  argF: "Mulligan", argA: "ATM", argB: "Belotti", argC: "FCC",
+  argD: "Ipnovendita", argE: "Montemagno", argG: "Argomento G"
+};
 
 /* Chart.js lazy load da CDN */
 const loadChart = async () => {
