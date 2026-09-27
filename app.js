@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790491296";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790491922";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -601,7 +601,7 @@ function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; 
 function weekDates(monday){ const a=[]; for(let i=0;i<7;i++) a.push(addDays(monday,i)); return a; }
 
 let viewMonday = getMonday(new Date());
-let view = "today";
+let view = isSharedMode ? "history" : "today";  // link condiviso: solo Storico
 
 /* ===================== Colore rosso -> verde ===================== */
 function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(r*125)+",70%,45%)"; }

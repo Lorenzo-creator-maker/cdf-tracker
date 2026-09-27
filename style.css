@@ -383,3 +383,7 @@ body.is-shared .todayrow{cursor:default!important;}
 body.is-shared .focuschip{pointer-events:none!important;cursor:default!important;}
 
 
+/* Link condiviso in sola lettura: si vede solo lo Storico, senza schede né comandi dell'app */
+body.is-shared .tabs,
+body.is-shared #libBtn,
+body.is-shared #syncBadge{display:none!important;}
