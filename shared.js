@@ -38,6 +38,23 @@ const SECTION_HEX_MAP = {
   corsi: "#7c5cbf",
 };
 
+/* Palette completa per nuove aree personalizzate */
+const PALETTE_COLORS = [
+  { id: "verde",    name: "Verde",    hex: "#10b981", soft: "rgba(16,185,129,0.14)" },
+  { id: "ambra",    name: "Ambra",    hex: "#f59e0b", soft: "rgba(245,158,11,0.14)" },
+  { id: "viola",    name: "Viola",    hex: "#8b5cf6", soft: "rgba(139,92,246,0.14)" },
+  { id: "blu",      name: "Blu",      hex: "#0284c7", soft: "rgba(2,132,199,0.14)" },
+  { id: "rosa",     name: "Rosa",     hex: "#ec4899", soft: "rgba(236,72,153,0.14)" },
+  { id: "ciano",    name: "Ciano",    hex: "#06b6d4", soft: "rgba(6,182,212,0.14)" },
+  { id: "rosso",    name: "Rosso",    hex: "#ef4444", soft: "rgba(239,68,68,0.14)" },
+  { id: "arancio",  name: "Arancio",  hex: "#f97316", soft: "rgba(249,115,22,0.14)" },
+  { id: "indaco",   name: "Indaco",   hex: "#6366f1", soft: "rgba(99,102,241,0.14)" },
+  { id: "smeraldo", name: "Smeraldo", hex: "#059669", soft: "rgba(5,150,105,0.14)" },
+];
+
+const PALETTE_HEX = {};
+PALETTE_COLORS.forEach(c => { PALETTE_HEX[c.id] = c.hex; });
+
 /* Nomi standard per le attività built-in */
 const DEFAULT_ACTIVITY_NAMES = {
   respiro: "Respiro", esvoce: "Es Voce", schiena: "Schiena", bagua: "Ba Gua",
@@ -55,5 +72,7 @@ if (typeof window !== "undefined") {
   window.SECTION_IDS = SECTION_IDS;
   window.SECTION_COLOR_MAP = SECTION_COLOR_MAP;
   window.SECTION_HEX_MAP = SECTION_HEX_MAP;
+  window.PALETTE_COLORS = PALETTE_COLORS;
+  window.PALETTE_HEX = PALETTE_HEX;
   window.DEFAULT_ACTIVITY_NAMES = DEFAULT_ACTIVITY_NAMES;
 }

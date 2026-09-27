@@ -36,10 +36,16 @@ const loadChart = async () => {
    COSTANTI & COLORI
    ============================================================ */
 const COLORS = {
-  verde:  { name: 'Fisica & Benessere', dot: '#10b981', soft: 'rgba(16,185,129,0.14)', line: 'rgba(16,185,129,0.35)', hex: '#10b981' },
-  ambra:  { name: 'Autotrattamento',    dot: '#f59e0b', soft: 'rgba(245,158,11,0.14)', line: 'rgba(245,158,11,0.35)', hex: '#f59e0b' },
-  viola:  { name: 'Corsi',              dot: '#8b5cf6', soft: 'rgba(139,92,246,0.14)', line: 'rgba(139,92,246,0.35)', hex: '#8b5cf6' },
-  blu:    { name: 'Lavoro',             dot: '#0284c7', soft: 'rgba(2,132,199,0.14)', line: 'rgba(2,132,199,0.35)', hex: '#0284c7' },
+  verde:    { name: 'Fisica & Benessere', dot: '#10b981', soft: 'rgba(16,185,129,0.14)', line: 'rgba(16,185,129,0.35)', hex: '#10b981' },
+  ambra:    { name: 'Autotrattamento',    dot: '#f59e0b', soft: 'rgba(245,158,11,0.14)', line: 'rgba(245,158,11,0.35)', hex: '#f59e0b' },
+  viola:    { name: 'Corsi',              dot: '#8b5cf6', soft: 'rgba(139,92,246,0.14)', line: 'rgba(139,92,246,0.35)', hex: '#8b5cf6' },
+  blu:      { name: 'Lavoro',             dot: '#0284c7', soft: 'rgba(2,132,199,0.14)', line: 'rgba(2,132,199,0.35)', hex: '#0284c7' },
+  rosa:     { name: 'Rosa',               dot: '#ec4899', soft: 'rgba(236,72,153,0.14)', line: 'rgba(236,72,153,0.35)', hex: '#ec4899' },
+  ciano:    { name: 'Ciano',              dot: '#06b6d4', soft: 'rgba(6,182,212,0.14)', line: 'rgba(6,182,212,0.35)', hex: '#06b6d4' },
+  rosso:    { name: 'Rosso',              dot: '#ef4444', soft: 'rgba(239,68,68,0.14)', line: 'rgba(239,68,68,0.35)', hex: '#ef4444' },
+  arancio:  { name: 'Arancio',            dot: '#f97316', soft: 'rgba(249,115,22,0.14)', line: 'rgba(249,115,22,0.35)', hex: '#f97316' },
+  indaco:   { name: 'Indaco',             dot: '#6366f1', soft: 'rgba(99,102,241,0.14)', line: 'rgba(99,102,241,0.35)', hex: '#6366f1' },
+  smeraldo: { name: 'Smeraldo',           dot: '#059669', soft: 'rgba(5,150,105,0.14)', line: 'rgba(5,150,105,0.35)', hex: '#059669' },
 };
 const COLOR_KEYS = Object.keys(COLORS);
 
@@ -153,6 +159,16 @@ function getCdfActivities() {
       const customs = d._customActivities || {};
       const labels = d._labels || {};
       const secColor = { fisica: 'verde', autotrattamento: 'ambra', corsi: 'viola', lavoro: 'blu' };
+      if (Array.isArray(d._customSections)) {
+        d._customSections.forEach(cs => {
+          if (cs && cs.id && cs.color) secColor[cs.id] = cs.color;
+        });
+      }
+      if (d._sectionColors) {
+        for (const sid in d._sectionColors) {
+          if (d._sectionColors[sid]) secColor[sid] = d._sectionColors[sid];
+        }
+      }
 
       for (const sid in customs) {
         (customs[sid] || []).forEach(a => {

@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790459500";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790470000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -20,24 +20,24 @@ applyTheme();
 /* ===================== Sezioni e attività =====================
    Tipi di attività:
    - normale  -> 7 caselle (una al giorno)
-   - weekly:true -> 1 sola casella per settimana
-   - odd:true -> spuntabile solo nei giorni dispari del mese            */
-const SECTIONS = [
-  { id:"fisica", name:"Fisica & Benessere", emoji:"🏃", activities:[
+   - freq:N   -> flessibile (N volte a settimana)
+   - day:D    -> giorno fisso della settimana                       */
+const BUILTIN_SECTIONS = [
+  { id:"fisica", name:"Fisica & Benessere", emoji:"🏃", color:"verde", activities:[
     {id:"respiro",name:"Respiro"},{id:"esvoce",name:"Es Voce"},{id:"schiena",name:"Schiena"},{id:"bagua",name:"Ba Gua"},
     {id:"trapz",name:"Tra pz e altro"},{id:"cfg",name:"CFG"},{id:"esyoga",name:"Es Yoga"},
     {id:"kf",name:"KF"},{id:"occhi",name:"Occhi"},{id:"perin",name:"Perin"},
     {id:"collo",name:"Collo"},{id:"polsi",name:"Polsi"},{id:"allungamento",name:"Allungamento"},
     {id:"seqex",name:"Seqex e P"}
   ]},
-  { id:"autotrattamento", name:"Autotrattamento", emoji:"💆", activities:[
+  { id:"autotrattamento", name:"Autotrattamento", emoji:"💆", color:"ambra", activities:[
     {id:"at_p",name:"P"},{id:"at_s",name:"S"},{id:"at_focali",name:"Focali"},{id:"at_l",name:"L"}
   ]},
   // La sezione Lavoro non c'e' piu' dal 16/09/2026: la To-Do Lavoro si spunta
   // solo nell'app dei promemoria (promemoria-fisioriccione), che ne misura le
   // quote settimanali. Le spunte gia' fatte qui restano nei dati, non si
   // cancellano: semplicemente non si mostrano piu'.
-  { id:"corsi", name:"Corsi", emoji:"📚", activities:[
+  { id:"corsi", name:"Corsi", emoji:"📚", color:"viola", activities:[
     {id:"argF",name:"Mulligan",freq:1},
     {id:"argA",name:"ATM",freq:1},
     {id:"argB",name:"Belotti",freq:1},
@@ -48,8 +48,67 @@ const SECTIONS = [
   ]}
 ];
 
+/* Restituisce tutte le sezioni attive (predefinite + create dall'utente), ordinate */
+function getSections(){
+  const custom = (data && Array.isArray(data._customSections)) ? data._customSections : [];
+  const deletedSecs = (data && data._deletedSections) || {};
+  
+  const secMap = {};
+  BUILTIN_SECTIONS.forEach(s => {
+    if(!deletedSecs[s.id]) {
+      const col = (data && data._sectionColors && data._sectionColors[s.id]) || s.color || (typeof SECTION_COLOR_MAP !== 'undefined' ? SECTION_COLOR_MAP[s.id] : "verde") || "verde";
+      secMap[s.id] = { ...s, color: col, isCustom: false };
+    }
+  });
+  custom.forEach(s => {
+    if(s && s.id && !deletedSecs[s.id]) {
+      const col = (data && data._sectionColors && data._sectionColors[s.id]) || s.color || "verde";
+      secMap[s.id] = {
+        id: s.id,
+        name: s.name || "Nuova Area",
+        emoji: s.emoji || "📁",
+        color: col,
+        activities: [],
+        isCustom: true
+      };
+    }
+  });
+
+  const order = data && data._sectionOrder;
+  if(Array.isArray(order) && order.length > 0){
+    const result = [];
+    order.forEach(sid => {
+      if(secMap[sid]) {
+        result.push(secMap[sid]);
+        delete secMap[sid];
+      }
+    });
+    Object.values(secMap).forEach(s => result.push(s));
+    return result;
+  }
+
+  return Object.values(secMap);
+}
+
+function getSectionColor(sOrId){
+  const sec = typeof sOrId === 'string' ? getSections().find(s => s.id === sOrId) : sOrId;
+  if(sec && sec.color) return sec.color;
+  const sid = typeof sOrId === 'string' ? sOrId : (sec ? sec.id : '');
+  if(data && data._sectionColors && data._sectionColors[sid]) return data._sectionColors[sid];
+  if(typeof SECTION_COLOR_MAP !== 'undefined' && SECTION_COLOR_MAP[sid]) return SECTION_COLOR_MAP[sid];
+  return "verde";
+}
+
+function getSectionHex(sOrId){
+  const colorName = getSectionColor(sOrId);
+  if(typeof PALETTE_HEX !== 'undefined' && PALETTE_HEX[colorName]) return PALETTE_HEX[colorName];
+  const sid = typeof sOrId === 'string' ? sOrId : (sOrId ? sOrId.id : '');
+  if(typeof SECTION_HEX_MAP !== 'undefined' && SECTION_HEX_MAP[sid]) return SECTION_HEX_MAP[sid];
+  return "#2f9e6f";
+}
+
 const DEFAULT_LABEL = {};
-SECTIONS.forEach(s=>s.activities.forEach(a=>DEFAULT_LABEL[a.id]=a.name));
+BUILTIN_SECTIONS.forEach(s=>s.activities.forEach(a=>DEFAULT_LABEL[a.id]=a.name));
 
 const DAYS_SHORT = ["L","M","M","G","V","S","D"];
 const MONTHS = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
@@ -65,7 +124,29 @@ const SECTION_HEX   = SECTION_HEX_MAP;    // from shared.js
 function exHref(actId, secId){
   return "esercizi/index.html#act="+encodeURIComponent(actId)+
          "&name="+encodeURIComponent(actLabel(actId))+
-         "&color="+(SECTION_COLOR[secId]||"verde");
+         "&color="+encodeURIComponent(getSectionColor(secId));
+}
+
+/* Verifica se un'attività ha esercizi memorizzati nella libreria */
+function hasExercises(actId, lbl){
+  try {
+    const raw = localStorage.getItem("cdf_exercises_v1");
+    if(!raw) return false;
+    const store = JSON.parse(raw);
+    if(!store || typeof store !== "object") return false;
+    if(store[actId] && Array.isArray(store[actId].exercises) && store[actId].exercises.length > 0) return true;
+    if(lbl){
+      const clean = lbl.trim().toLowerCase();
+      for(const k of Object.keys(store)){
+        if(k.startsWith("_")) continue;
+        const it = store[k];
+        if(it && (it.name||"").trim().toLowerCase() === clean && Array.isArray(it.exercises) && it.exercises.length > 0){
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch(e){ return false; }
 }
 
 /* ===================== Funzioni per Condivisione & Pantry ===================== */
@@ -106,6 +187,10 @@ function getShareUrl(type){
   const snapObj = {
     _labels: data._labels || {},
     _customActivities: data._customActivities || {},
+    _customSections: data._customSections || [],
+    _sectionNames: data._sectionNames || {},
+    _sectionColors: data._sectionColors || {},
+    _sectionOrder: data._sectionOrder || [],
     _hiddenActivities: data._hiddenActivities || {},
     _activityTypes: data._activityTypes || {},
     _order: data._order || {},
@@ -172,13 +257,17 @@ if (pruned) {
   data._updatedAt = Date.now();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
 }
-if(!data._labels)           data._labels = {};
-if(!data._updatedAt)        data._updatedAt = 0;
-if(!data._sectionNames)     data._sectionNames = {};     // { secId: {name,emoji} }
-if(!data._customActivities) data._customActivities = {};  // { secId: [{id,name,...}] }
-if(!data._hiddenActivities) data._hiddenActivities = {};  // { actId: +ts nascosta | -ts esplicitamente mostrata }
-if(!data._deletedActivities) data._deletedActivities = {}; // { actId: true } — eliminazione definitiva
-if(!data._activityTypes)    data._activityTypes = {};     // { actId: {type,day?} } — override tipo
+if(!data._labels)            data._labels = {};
+if(!data._updatedAt)         data._updatedAt = 0;
+if(!data._sectionNames)      data._sectionNames = {};      // { secId: {name,emoji} }
+if(!data._customSections)    data._customSections = [];    // [{ id, name, emoji, color, createdAt }]
+if(!data._deletedSections)   data._deletedSections = {};   // { secId: true } — eliminazione definitiva area
+if(!data._sectionOrder)      data._sectionOrder = [];      // [secId1, secId2, ...] — ordine delle aree
+if(!data._sectionColors)     data._sectionColors = {};     // { secId: colorId }
+if(!data._customActivities)  data._customActivities = {};   // { secId: [{id,name,...}] }
+if(!data._hiddenActivities)  data._hiddenActivities = {};   // { actId: +ts nascosta | -ts esplicitamente mostrata }
+if(!data._deletedActivities) data._deletedActivities = {};  // { actId: true } — eliminazione definitiva
+if(!data._activityTypes)     data._activityTypes = {};      // { actId: {type,day?} } — override tipo
 
 let pantryId = "";
 try { pantryId = localStorage.getItem(PANTRY_KEY) || ""; } catch(e){}
@@ -345,6 +434,22 @@ function mergeData(local, remote){
   }
   out._labels       = mergeLabels(olderGlobal._labels,       newerGlobal._labels);
   out._sectionNames = mergeLabels(olderGlobal._sectionNames, newerGlobal._sectionNames);
+  out._sectionColors= mergeLabels(olderGlobal._sectionColors,newerGlobal._sectionColors);
+
+  // _deletedSections: union
+  const mergedDeletedSections = Object.assign({}, olderGlobal._deletedSections||{}, newerGlobal._deletedSections||{});
+  out._deletedSections = mergedDeletedSections;
+
+  // _customSections: union by id, escludendo tombstone
+  const oldSecs = olderGlobal._customSections || [];
+  const newSecs = newerGlobal._customSections || [];
+  const secById = {};
+  oldSecs.forEach(s => { if(s && s.id && !mergedDeletedSections[s.id]) secById[s.id] = s; });
+  newSecs.forEach(s => { if(s && s.id && !mergedDeletedSections[s.id]) secById[s.id] = s; });
+  out._customSections = Object.values(secById);
+
+  // _sectionOrder: newerGlobal wins
+  out._sectionOrder = newerGlobal._sectionOrder || olderGlobal._sectionOrder || [];
 
   // _customActivities: union degli array (l'id più recente vince) MA un id con tombstone
   // viene SEMPRE escluso. Così un dispositivo fermo a una versione vecchia (o con dati
@@ -424,12 +529,16 @@ async function reconcile(){
     data = isSharedMode ? (stripMeta(remote) || {}) : mergeData(data, remote);
     if(!data._labels)           data._labels={};
     if(!data._sectionNames)     data._sectionNames={};
+    if(!data._customSections)   data._customSections=[];
+    if(!data._deletedSections)  data._deletedSections={};
+    if(!data._sectionOrder)     data._sectionOrder=[];
+    if(!data._sectionColors)    data._sectionColors={};
     if(!data._customActivities) data._customActivities={};
     if(!data._hiddenActivities) data._hiddenActivities={};
     if(!data._deletedActivities) data._deletedActivities={};
     repairData();   // togli fantasmi/doppioni anche da ciò che arriva dal cloud
     // Ricarica i DEFAULT_LABEL con le attività custom sincronizzate
-    for(const sec of SECTIONS){
+    for(const sec of getSections()){
       const customs=(data._customActivities&&data._customActivities[sec.id])||[];
       customs.forEach(a=>{ if(!DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
     }
@@ -441,11 +550,27 @@ async function reconcile(){
     } else {
       setSync("ok");
     }
+    syncExercisesIndex();
   } catch(e) {
     initialLoading = false;
     setSync("error");
     render();
   }
+}
+
+async function syncExercisesIndex(){
+  if(!pantryId || isSharedMode) return;
+  try {
+    const res = await fetch("https://getpantry.cloud/apiv1/pantry/" + pantryId + "/basket/esercizi", { cache: "no-store" });
+    if(res.ok){
+      const remoteEx = await res.json();
+      if(remoteEx && typeof remoteEx === "object"){
+        const clean = stripMeta(remoteEx);
+        localStorage.setItem("cdf_exercises_v1", JSON.stringify(clean));
+        render();
+      }
+    }
+  } catch(e){}
 }
 
 /* ===================== Helper date ===================== */
@@ -491,7 +616,7 @@ function sectionLabel(sec){
 /* Tutte le attività di una sezione: built-in + custom */
 function allActivities(sec){
   const customs = (data._customActivities && data._customActivities[sec.id]) || [];
-  return sec.activities.concat(customs);
+  return (sec.activities || []).concat(customs);
 }
 
 /* Applica override tipo attività (data._activityTypes) a un'attività */
@@ -556,9 +681,15 @@ function mergeChecks(fromId, toId){
   });
 }
 function repairData(){
-  if(!data._customActivities) return false;
-  const tomb=data._deletedActivities||{};
   let changed=false;
+  if(data._customSections){
+    const secTomb = data._deletedSections || {};
+    const beforeSecLen = data._customSections.length;
+    data._customSections = data._customSections.filter(s => s && s.id && !secTomb[s.id] && s.name);
+    if(data._customSections.length !== beforeSecLen) changed = true;
+  }
+  if(!data._customActivities) return changed;
+  const tomb=data._deletedActivities||{};
   Object.keys(data._customActivities).forEach(sid=>{
     const list=data._customActivities[sid]||[];
     const groups={}; const kept=[];
@@ -624,7 +755,7 @@ function sectionStats(monday, section){
 }
 function weekRatio(monday){
   let done=0,total=0;
-  for(const sec of SECTIONS){ const s=sectionStats(monday,sec); done+=s.done; total+=s.total; }
+  for(const sec of getSections()){ const s=sectionStats(monday,sec); done+=s.done; total+=s.total; }
   return total?done/total:0;
 }
 /* Totale per un singolo giorno (escludo le attività settimanali e i giorni non-applicabili) */
@@ -633,7 +764,7 @@ function dayStats(monday, i){
   let done=0,total=0;
   const hidden = data._hiddenActivities || {};
   const deleted = data._deletedActivities || {};
-  for(const sec of SECTIONS) for(const a of allActivities(sec)){
+  for(const sec of getSections()) for(const a of allActivities(sec)){
     if(hiddenVal(hidden[a.id]) || deleted[a.id]) continue;
     const ra=resolveActType(a);
     if(ra.day!==undefined && ra.day!==i) continue;
@@ -729,7 +860,7 @@ function recentActiveDays(maxDays){
 function todayCounts(targetDate = todayViewDate){
   const now=targetDate, key=fmtKey(getMonday(now)), ti=todayIndex(now), dateNum=now.getDate();
   let done=0,total=0;
-  SECTIONS.forEach(s=> orderedActivities(s).forEach(a=>{
+  getSections().forEach(s=> orderedActivities(s).forEach(a=>{
     if(!appliesToday(a,ti,dateNum, getMonday(now))) return;
     const dayIdx = a.day!==undefined?a.day:ti;
     const on = getCell(key, a.id, dayIdx);
@@ -787,7 +918,7 @@ function renderToday(){
   let totDone=0, totTot=0, totVisible=0, body="";
   const todayActs = [];
 
-  SECTIONS.forEach(s=>{
+  getSections().forEach(s=>{
     const acts = orderedActivities(s);
     totVisible += acts.length;
     const todays = acts.filter(a=>appliesToday(a, ti, dateNum, monday));
@@ -806,9 +937,13 @@ function renderToday(){
       if(a.freq && a.freq < 7) tag = '<span class="tag">'+a.freq+'×/sett</span>';
       else if(a.day!==undefined) tag = '<span class="tag">'+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>';
       const lbl = esc(actLabel(a.id));
+      const hasEx = hasExercises(a.id, actLabel(a.id));
+      const nameMarkup = hasEx
+        ? '<span class="trlabelname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Vedi esercizi di '+lbl+'">'+lbl+' <span class="ex-dot">📚</span></span>'
+        : '<span class="trlabelname" data-act="'+a.id+'">'+lbl+'</span>';
       rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
               'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
-              '<span class="trlabel"><span class="trlabelname">'+lbl+'</span>'+tag+'</span>'+
+              '<span class="trlabel">'+nameMarkup+tag+'</span>'+
               '<span class="trcheck">✓</span></div>';
     });
     const secTot = todays.length, ratio = secTot? secDone/secTot : 0;
@@ -890,7 +1025,7 @@ function renderToday(){
     const hidden = Math.max(0, totVisible - totTot);
     if(hidden>0){
       // Conta quante delle attività nascoste oggi sono a frequenza flessibile (obiettivo raggiunto)
-      const freqHidden = SECTIONS.reduce((cnt, s) => {
+      const freqHidden = getSections().reduce((cnt, s) => {
         return cnt + orderedActivities(s).filter(a => a.freq && a.freq < 7 && !appliesToday(a, ti, dateNum, monday)).length;
       }, 0);
       const parts = [];
@@ -912,7 +1047,7 @@ function renderWeek(){
   const dates = weekDates(viewMonday).map(d=>({d, today: fmtKey(d)===todayKey}));
 
   let html = "";
-  SECTIONS.forEach(s=>{
+  getSections().forEach(s=>{
     const st = sectionStats(viewMonday, s);
     const col = gradColor(st.ratio);
     const sl = sectionLabel(s);
@@ -925,26 +1060,41 @@ function renderWeek(){
     dates.forEach((dd,i)=>{ html += '<th class="'+(dd.today?'todaycol':'')+'">'+DAYS_SHORT[i]+'<span class="dnum">'+dd.d.getDate()+'</span></th>'; });
     html += '<th>%</th></tr></thead><tbody>';
 
-    orderedActivities(s).forEach(a=>{
-      const rs = actStats(viewMonday, a);
-      let tag = (a.freq && a.freq < 7) ? '<span class="tag">'+a.freq+'×/sett</span>'
-              : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>' : '');
-      html += '<tr><td class="lbl"><span class="lblname">'+esc(actLabel(a.id))+tag+'</span></td>';
+    const acts = orderedActivities(s);
+    if(acts.length === 0){
+      html += '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:14px;font-size:13px;">Nessuna attività in questa area. <button class="go-settings-act" data-secid="'+s.id+'" style="background:none;border:none;color:#2563eb;font-weight:700;cursor:pointer;text-decoration:underline;">Aggiungi attività</button> in ⚙️ Impostazioni.</td></tr>';
+    } else {
+      acts.forEach(a=>{
+        const rs = actStats(viewMonday, a);
+        let tag = (a.freq && a.freq < 7) ? '<span class="tag">'+a.freq+'×/sett</span>'
+                : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>' : '');
+        const lbl = esc(actLabel(a.id));
+        const hasEx = hasExercises(a.id, actLabel(a.id));
+        const lblMarkup = hasEx
+          ? '<span class="lblname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Vedi esercizi di '+lbl+'">'+lbl+' <span class="ex-dot">📚</span>'+tag+'</span>'
+          : '<span class="lblname">'+lbl+tag+'</span>';
+        html += '<tr><td class="lbl">'+lblMarkup+'</td>';
 
-      const actSet = activeDays(a, viewMonday);
-      const DAYS_LONG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];
-      for(let i=0;i<7;i++){
-        if(actSet.indexOf(i)<0){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis" aria-hidden="true">·</span></td>'; continue; }
-        const on = getCell(key,a.id,i);
-        const cellLbl = esc(actLabel(a.id))+', '+DAYS_LONG[i]+' '+dates[i].d.getDate();
-        html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" '+
-                'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+cellLbl+'" '+
-                'data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
-      }
-      html += '<td class="rowpct" style="color:'+gradColor(rs.ratio)+'">'+pctTxt(rs.ratio)+'</td></tr>';
-    });
+        const actSet = activeDays(a, viewMonday);
+        const DAYS_LONG = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato","Domenica"];
+        for(let i=0;i<7;i++){
+          if(actSet.indexOf(i)<0){ html += '<td class="'+(dates[i].today?'todaycol':'')+'"><span class="celldis" aria-hidden="true">·</span></td>'; continue; }
+          const on = getCell(key,a.id,i);
+          const cellLbl = esc(actLabel(a.id))+', '+DAYS_LONG[i]+' '+dates[i].d.getDate();
+          html += '<td class="'+(dates[i].today?'todaycol':'')+'"><button class="cell'+(on?' on':'')+'" '+
+                  'role="checkbox" aria-checked="'+(on?'true':'false')+'" aria-label="'+cellLbl+'" '+
+                  'data-act="'+a.id+'" data-day="'+i+'">✓</button></td>';
+        }
+        html += '<td class="rowpct" style="color:'+gradColor(rs.ratio)+'">'+pctTxt(rs.ratio)+'</td></tr>';
+      });
+    }
     html += '</tbody></table></section>';
   });
+
+  html += '<div style="text-align:center;margin:18px 0 8px;">'+
+          '<button class="btn ghost" id="weekNewAreaBtn" style="font-size:12px;padding:0 16px;height:36px;border-radius:99px;border:1px dashed var(--line);color:var(--ink);">➕ Nuova Area / Gestisci Sezioni</button>'+
+          '</div>';
+
   document.getElementById("weekView").innerHTML = html;
 
   let dc = '<div class="daycard"><h3>Totale giornaliero</h3><div class="daygrid">';
@@ -1005,7 +1155,7 @@ function renderHistory(){
     heat += '<div class="hm-wrap"><table class="hm"><thead><tr><th class="lbl"></th>';
     weeks8.forEach(m=>{ heat += '<th>'+m.getDate()+'/'+(m.getMonth()+1)+'</th>'; });
     heat += '</tr></thead><tbody>';
-    SECTIONS.forEach(s=>{
+    getSections().forEach(s=>{
       const sl2 = sectionLabel(s);
       heat += '<tr class="sub"><td class="lbl">'+sl2.emoji+' '+esc(sl2.name)+'</td><td colspan="'+weeks8.length+'"></td></tr>';
       orderedActivities(s).forEach(a=>{
@@ -1023,7 +1173,7 @@ function renderHistory(){
     worst += '<div class="empty">Ancora nessun dato.</div></div>';
   } else {
     const allActsStats = [];
-    SECTIONS.forEach(s => {
+    getSections().forEach(s => {
       orderedActivities(s).forEach(a => {
         let done = 0, total = 0;
         weeks8.forEach(m => {
@@ -1057,12 +1207,12 @@ function renderHistory(){
   if(!hasAny || weeks8.length === 0){
     donut += '<div class="empty">📊 Spunta qualche attività e qui vedrai dove concentrarti.</div>';
   } else {
-    const secStats = SECTIONS.map(s=>{
+    const secStats = getSections().map(s=>{
       let done=0,total=0;
       orderedActivities(s).forEach(a=>{ weeks8.forEach(m=>{ const st=actStats(m,a); done+=st.done; total+=st.total; }); });
       const sl=sectionLabel(s);
       return { name:sl.name, emoji:sl.emoji, done, total,
-               ratio: total?done/total:0, deficit: total?(1-done/total):0, color:SECTION_HEX[s.id]||"#64748b" };
+               ratio: total?done/total:0, deficit: total?(1-done/total):0, color:getSectionHex(s) };
     }).filter(x=>x.total>0);
     const totalDeficit = secStats.reduce((a,b)=>a+b.deficit,0);
     const oDone = secStats.reduce((a,b)=>a+b.done,0);
@@ -1135,6 +1285,10 @@ function renderHistory(){
 
 /* ===================== Impostazioni ===================== */
 let settingsOpenSections = new Set();
+let isNewAreaCardOpen = false;
+let selectedNewAreaEmoji = "🏃";
+let selectedNewAreaColor = "verde";
+
 function toggleAccSection(key){
   if(settingsOpenSections.has(key)) settingsOpenSections.delete(key);
   else settingsOpenSections.add(key);
@@ -1164,19 +1318,69 @@ function renderSettings(){
 
   // Sezione 2: Gestisci attività
   h += '<div class="acc-item'+(settingsOpenSections.has('activities')?' open':'')+'" data-acckey="activities"><button class="acc-header" onclick="toggleAccSection(\'activities\')">🏷️ Gestisci Sezioni e Attività</button><div class="acc-content">';
-  h += '<p class="sub" style="margin-top:12px">Rinomina sezioni ed emoji, riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
-  SECTIONS.forEach(s=>{
+  h += '<p class="sub" style="margin-top:12px">Rinomina aree ed emoji, crea nuove aree (come Attività fisica, Studio, Lettura...) e riordina con ▲▼. Tocca ✏️ per cambiare il tipo di attività (giorni dispari, giorno fisso…) o nasconderla.</p>';
+  
+  // Header barra Aree di monitoraggio + pulsante Nuova Area
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 10px;">'+
+       '<span style="font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);">Aree di monitoraggio</span>'+
+       '<button class="btn primary" id="openNewAreaBtn" style="height:34px;padding:0 12px;font-size:12px;display:flex;align-items:center;gap:5px;">➕ Nuova Area</button>'+
+       '</div>';
+
+  // Card Crea Nuova Area
+  h += '<div id="newAreaCard" class="new-area-card'+(isNewAreaCardOpen?'':' hidden')+'">'+
+       '<div class="new-area-title">🎯 Crea Nuova Area</div>'+
+       '<div class="new-area-sub">Aggiungi una nuova area per monitorare le tue abitudini (es. Attività fisica, Studio, Lettura, Meditazione...).</div>'+
+       '<input type="text" id="newAreaName" placeholder="Nome dell\'area (es. Attività fisica)" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:14px;background:var(--card);color:var(--ink);margin-bottom:8px;">'+
+       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
+         '<span style="font-size:12px;color:var(--muted);font-weight:700;">Emoji:</span>'+
+         '<input type="text" id="newAreaEmoji" value="'+esc(selectedNewAreaEmoji||'🏃')+'" maxlength="4" style="width:44px;height:36px;text-align:center;font-size:18px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);padding:0;">'+
+         '<span style="font-size:11px;color:var(--muted);">Scegli un\'icona:</span>'+
+       '</div>'+
+       '<div class="emoji-chips">'+
+         ['🏃','🏋️','🧘','🚴','📚','🎯','🍎','💧','🧠','⚡','💼','🎨','🎵','☀️','💆','🥋'].map(e=>'<button type="button" class="emoji-chip" data-setemoji="'+e+'">'+e+'</button>').join('')+
+       '</div>'+
+       '<div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px;">Colore per grafici e statistiche:</div>'+
+       '<div class="color-swatches">'+
+         PALETTE_COLORS.map(c=>'<div class="color-dot'+((selectedNewAreaColor===c.id||(!selectedNewAreaColor&&c.id==='verde'))?' active':'')+'" data-setcolor="'+c.id+'" style="background:'+c.hex+';" title="'+c.name+'"></div>').join('')+
+       '</div>'+
+       '<div class="row-btns" style="margin-top:6px;">'+
+         '<button class="btn primary" id="confirmNewAreaBtn">Crea Area</button>'+
+         '<button class="btn ghost" id="cancelNewAreaBtn">Annulla</button>'+
+       '</div>'+
+       '</div>';
+
+  const allSecs = getSections();
+  allSecs.forEach((s, secIdx)=>{
     const sl = sectionLabel(s);
     const allActs = orderedActivities(s, true); // include hidden
     const hidden = data._hiddenActivities || {};
     const customs = (data._customActivities && data._customActivities[s.id]) || [];
     const customIds = new Set(customs.map(a=>a.id));
+    const curSecColor = getSectionColor(s);
+
     h += '<div class="rename-sec-wrap" data-secid="'+s.id+'">';
     // Header sezione editabile
     h += '<div class="rename-sec-header">';
-    h += '<input type="text" class="sec-emoji-inp" data-semoji="'+s.id+'" value="'+esc(sl.emoji)+'" maxlength="4" placeholder="📝" style="width:42px;text-align:center;font-size:18px;">';
-    h += '<input type="text" class="sec-name-inp" data-sname="'+s.id+'" value="'+esc(sl.name)+'" placeholder="'+esc(s.name)+'" style="flex:1;">';
+    h += '<input type="text" class="sec-emoji-inp" data-semoji="'+s.id+'" value="'+esc(sl.emoji)+'" maxlength="4" placeholder="📝" title="Emoji area">';
+    h += '<input type="text" class="sec-name-inp" data-sname="'+s.id+'" value="'+esc(sl.name)+'" placeholder="'+esc(s.name)+'" title="Nome area">';
+    h += '<select class="sec-color-select" data-scolor="'+s.id+'" title="Colore area">';
+    PALETTE_COLORS.forEach(c => {
+      h += '<option value="'+c.id+'"'+(curSecColor===c.id?' selected':'')+'>'+c.name+'</option>';
+    });
+    h += '</select>';
+    h += '<button class="movebtn sec-movebtn" data-msecorder="'+s.id+'" data-msecdir="-1"'+((secIdx>0)?'':' disabled')+' title="Sposta area in alto">▲</button>';
+    h += '<button class="movebtn sec-movebtn" data-msecorder="'+s.id+'" data-msecdir="1"'+((secIdx<allSecs.length-1)?'':' disabled')+' title="Sposta area in basso">▼</button>';
+    if(s.isCustom){
+      h += '<button class="movebtn sec-delbtn" data-delsecid="'+s.id+'" title="Elimina area" style="color:#ef4444;">🗑</button>';
+    } else {
+      h += '<button class="movebtn sec-delbtn" data-delbuiltinsec="'+s.id+'" title="Rimuovi area predefinita" style="color:#ef4444;">🗑</button>';
+    }
     h += '</div>';
+
+    if(allActs.length === 0){
+      h += '<div class="empty-sec-notice">Nessuna attività in questa area. Tocca “Aggiungi attività” qui sotto per iniziare.</div>';
+    }
+
     // Lista attività
     h += '<div class="rename-list">';
     allActs.forEach((a,idx)=>{
@@ -1237,6 +1441,7 @@ function renderSettings(){
     h += '</div></div>';
     h += '</div>'; // fine rename-sec-wrap
   });
+  h += '<button class="btn ghost" id="openNewAreaBtnBottom" style="width:100%;margin-top:8px;margin-bottom:12px;font-size:13px;border-style:dashed;">➕ Nuova Area (Sezione)</button>';
   h += '<div class="row-btns" style="margin-top:12px"><button class="btn ghost" id="resetNames">Ripristina predefiniti</button></div><div id="nameMsg"></div></div></div>'; // end acc-content, acc-item
 
   // Sezione 3: Backup
@@ -1292,6 +1497,91 @@ function renderSettings(){
   });
   document.getElementById("exportBtn").onclick = exportData;
   document.getElementById("importBtn").onclick = ()=>document.getElementById("importFile").click();
+  
+  // Pulsanti apri/chiudi/conferma Nuova Area
+  const openNewAreaBtn = document.getElementById("openNewAreaBtn");
+  if(openNewAreaBtn){
+    openNewAreaBtn.onclick = function(){
+      isNewAreaCardOpen = true;
+      renderSettings();
+      const inp = document.getElementById("newAreaName");
+      if(inp) inp.focus();
+    };
+  }
+  const openNewAreaBtnBottom = document.getElementById("openNewAreaBtnBottom");
+  if(openNewAreaBtnBottom){
+    openNewAreaBtnBottom.onclick = function(){
+      isNewAreaCardOpen = true;
+      renderSettings();
+      const card = document.getElementById("newAreaCard");
+      if(card) card.scrollIntoView({behavior:'smooth'});
+      const inp = document.getElementById("newAreaName");
+      if(inp) inp.focus();
+    };
+  }
+  const cancelNewAreaBtn = document.getElementById("cancelNewAreaBtn");
+  if(cancelNewAreaBtn){
+    cancelNewAreaBtn.onclick = function(){
+      isNewAreaCardOpen = false;
+      renderSettings();
+    };
+  }
+  const confirmNewAreaBtn = document.getElementById("confirmNewAreaBtn");
+  if(confirmNewAreaBtn){
+    confirmNewAreaBtn.onclick = function(){
+      const nameEl = document.getElementById("newAreaName");
+      const emojiEl = document.getElementById("newAreaEmoji");
+      const name = nameEl ? nameEl.value.trim() : "";
+      const emoji = emojiEl ? emojiEl.value.trim() : "🏃";
+      if(!name){
+        alert("Inserisci un nome per l'area.");
+        if(nameEl) nameEl.focus();
+        return;
+      }
+      const ok = addCustomSection(name, emoji, selectedNewAreaColor || "verde");
+      if(ok){
+        isNewAreaCardOpen = false;
+        selectedNewAreaEmoji = "🏃";
+        selectedNewAreaColor = "verde";
+        render();
+      }
+    };
+  }
+  document.querySelectorAll(".emoji-chip[data-setemoji]").forEach(btn=>{
+    btn.onclick = function(){
+      selectedNewAreaEmoji = this.dataset.setemoji;
+      const inp = document.getElementById("newAreaEmoji");
+      if(inp) inp.value = selectedNewAreaEmoji;
+    };
+  });
+  document.querySelectorAll(".color-dot[data-setcolor]").forEach(dot=>{
+    dot.onclick = function(){
+      selectedNewAreaColor = this.dataset.setcolor;
+      document.querySelectorAll(".color-dot[data-setcolor]").forEach(d=>d.classList.remove("active"));
+      this.classList.add("active");
+    };
+  });
+  document.querySelectorAll("[data-msecorder]").forEach(btn=>{
+    btn.onclick = function(){
+      moveSection(this.dataset.msecorder, parseInt(this.dataset.msecdir, 10));
+    };
+  });
+  document.querySelectorAll("[data-delsecid]").forEach(btn=>{
+    btn.onclick = function(){
+      deleteCustomSection(this.dataset.delsecid);
+    };
+  });
+  document.querySelectorAll("[data-delbuiltinsec]").forEach(btn=>{
+    btn.onclick = function(){
+      deleteBuiltinSection(this.dataset.delbuiltinsec);
+    };
+  });
+  document.querySelectorAll(".sec-color-select[data-scolor]").forEach(sel=>{
+    sel.onchange = function(){
+      setSectionColor(this.dataset.scolor, this.value);
+    };
+  });
+
   // Delegazione eventi per la sezione gestisci attività
   // Il cambio tipo attività è gestito dai .onchange espliciti più in basso
   document.querySelectorAll("[data-addact]").forEach(btn=>{
@@ -1361,6 +1651,118 @@ function renderSettings(){
   });
 }
 function msg(id, text, kind){ document.getElementById(id).innerHTML = '<div class="status-msg '+kind+'">'+text+'</div>'; }
+
+function addCustomSection(name, emoji, color){
+  name = (name || "").trim();
+  if(!name){ alert("Inserisci un nome per l'area."); return false; }
+  emoji = (emoji || "").trim() || "📁";
+  color = color || "verde";
+  if(!data._customSections) data._customSections = [];
+  const secId = "sec_" + Date.now();
+  const newSec = { id: secId, name, emoji, color, createdAt: Date.now() };
+  data._customSections.push(newSec);
+  if(!data._sectionOrder || !Array.isArray(data._sectionOrder) || data._sectionOrder.length === 0){
+    data._sectionOrder = getSections().map(s => s.id);
+  } else {
+    if(!data._sectionOrder.includes(secId)){
+      data._sectionOrder.push(secId);
+    }
+  }
+  data._updatedAt = Date.now();
+  schedulePush();
+  render();
+  msg("nameMsg", "✅ Nuova area \u201c" + esc(name) + "\u201d creata!", "ok");
+  showUndoToast("✅ Area \u201c" + esc(name) + "\u201d creata!");
+  return true;
+}
+
+function deleteCustomSection(secId){
+  const s = getSections().find(x => x.id === secId);
+  const secName = s ? s.name : "questa area";
+  if(!confirm("Eliminare l'area \u201c" + secName + "\u201d?\nLe spunte passate resteranno memorizzate nello storico.")) return;
+  if(!data._deletedSections) data._deletedSections = {};
+  data._deletedSections[secId] = Date.now();
+  if(data._customSections){
+    data._customSections = data._customSections.filter(x => x.id !== secId);
+  }
+  if(data._sectionOrder && Array.isArray(data._sectionOrder)){
+    data._sectionOrder = data._sectionOrder.filter(id => id !== secId);
+  }
+  if(data._sectionColors) delete data._sectionColors[secId];
+  if(data._sectionNames) delete data._sectionNames[secId];
+  // Elimina/tombstone anche le attività custom in quest'area
+  const acts = (data._customActivities && data._customActivities[secId]) || [];
+  if(acts.length > 0){
+    if(!data._deletedActivities) data._deletedActivities = {};
+    acts.forEach(a => {
+      if(a && a.id) data._deletedActivities[a.id] = true;
+    });
+    delete data._customActivities[secId];
+  }
+  data._updatedAt = Date.now();
+  schedulePush();
+  const scrollY = window.scrollY;
+  renderSettings();
+  window.scrollTo(0, scrollY);
+  msg("nameMsg", "🗑️ Area eliminata.", "info");
+  showUndoToast("🗑️ Area eliminata");
+}
+
+function deleteBuiltinSection(secId){
+  const s = getSections().find(x => x.id === secId);
+  const secName = s ? s.name : "questa area predefinita";
+  if(!confirm("Rimuovere l'area predefinita \u201c" + secName + "\u201d dalla visualizzazione?\nPotrai ripristinarla in qualsiasi momento cliccando \u2018Ripristina nomi e ordine\u2019.")) return;
+  if(!data._deletedSections) data._deletedSections = {};
+  data._deletedSections[secId] = Date.now();
+  if(data._sectionOrder && Array.isArray(data._sectionOrder)){
+    data._sectionOrder = data._sectionOrder.filter(id => id !== secId);
+  }
+  data._updatedAt = Date.now();
+  schedulePush();
+  const scrollY = window.scrollY;
+  renderSettings();
+  window.scrollTo(0, scrollY);
+  msg("nameMsg", "🗑️ Area predefinita rimossa.", "info");
+  showUndoToast("🗑️ Area rimossa");
+}
+
+function moveSection(secId, dir){
+  collectNames();
+  let currentOrder = (data._sectionOrder && Array.isArray(data._sectionOrder) && data._sectionOrder.length > 0)
+    ? data._sectionOrder.slice()
+    : getSections().map(s => s.id);
+  
+  if(!currentOrder.includes(secId)){
+    currentOrder = getSections().map(s => s.id);
+  }
+  const idx = currentOrder.indexOf(secId);
+  const j = idx + dir;
+  if(idx < 0 || j < 0 || j >= currentOrder.length) return;
+  const temp = currentOrder[idx];
+  currentOrder[idx] = currentOrder[j];
+  currentOrder[j] = temp;
+  data._sectionOrder = currentOrder;
+  data._updatedAt = Date.now();
+  schedulePush();
+  const scrollY = window.scrollY;
+  renderSettings();
+  window.scrollTo(0, scrollY);
+}
+
+function setSectionColor(secId, color){
+  if(!color) return;
+  if(!data._sectionColors) data._sectionColors = {};
+  data._sectionColors[secId] = color;
+  if(data._customSections){
+    const c = data._customSections.find(s => s.id === secId);
+    if(c) c.color = color;
+  }
+  data._updatedAt = Date.now();
+  schedulePush();
+  const scrollY = window.scrollY;
+  renderSettings();
+  window.scrollTo(0, scrollY);
+}
 
 function onShareStats(){
   copyShareLink(pantryId ? "live" : "snap");
@@ -1440,25 +1842,42 @@ function onDiscSync(){
 function collectNames(){
   document.querySelectorAll("#settingsView input[data-rid]").forEach(inp=>{
     const id=inp.getAttribute("data-rid"); const val=inp.value.trim();
-    const defLabel = DEFAULT_LABEL[id] || (()=>{ for(const s of SECTIONS){ const c=(data._customActivities&&data._customActivities[s.id])||[]; const f=c.find(a=>a.id===id); if(f) return f.name; } return id; })();
+    const defLabel = DEFAULT_LABEL[id] || (()=>{ for(const s of getSections()){ const c=(data._customActivities&&data._customActivities[s.id])||[]; const f=c.find(a=>a.id===id); if(f) return f.name; } return id; })();
     if(val && val!==defLabel) data._labels[id]=val;
     else if(val===defLabel) delete data._labels[id];
     // campo vuoto: non toccare l'etichetta salvata (l'auto-save scatta anche a metà digitazione)
   });
-  // Salva nomi e emoji delle sezioni
+  // Salva nomi e emoji delle sezioni (builtin e custom)
+  const currentSecs = getSections();
   document.querySelectorAll("#settingsView input[data-sname]").forEach(inp=>{
     const sid=inp.getAttribute("data-sname"); const val=inp.value.trim();
-    const sec=SECTIONS.find(s=>s.id===sid); if(!sec) return;
-    if(!data._sectionNames) data._sectionNames={};
-    if(!data._sectionNames[sid]) data._sectionNames[sid]={};
-    if(val && val!==sec.name) data._sectionNames[sid].name=val; else delete data._sectionNames[sid].name;
+    const sec=currentSecs.find(s=>s.id===sid); if(!sec) return;
+    if(sec.custom){
+      if(val && val !== sec.name){
+        sec.name = val;
+        const target = (data._customSections || []).find(s => s.id === sid);
+        if(target) target.name = val;
+      }
+    } else {
+      if(!data._sectionNames) data._sectionNames={};
+      if(!data._sectionNames[sid]) data._sectionNames[sid]={};
+      if(val && val!==sec.name) data._sectionNames[sid].name=val; else delete data._sectionNames[sid].name;
+    }
   });
   document.querySelectorAll("#settingsView input[data-semoji]").forEach(inp=>{
     const sid=inp.getAttribute("data-semoji"); const val=inp.value.trim();
-    const sec=SECTIONS.find(s=>s.id===sid); if(!sec) return;
-    if(!data._sectionNames) data._sectionNames={};
-    if(!data._sectionNames[sid]) data._sectionNames[sid]={};
-    if(val && val!==sec.emoji) data._sectionNames[sid].emoji=val; else delete data._sectionNames[sid].emoji;
+    const sec=currentSecs.find(s=>s.id===sid); if(!sec) return;
+    if(sec.custom){
+      if(val && val !== sec.emoji){
+        sec.emoji = val;
+        const target = (data._customSections || []).find(s => s.id === sid);
+        if(target) target.emoji = val;
+      }
+    } else {
+      if(!data._sectionNames) data._sectionNames={};
+      if(!data._sectionNames[sid]) data._sectionNames[sid]={};
+      if(val && val!==sec.emoji) data._sectionNames[sid].emoji=val; else delete data._sectionNames[sid].emoji;
+    }
   });
 }
 // onSaveNames non più necessario: i nomi si salvano automaticamente con debounce
@@ -1519,7 +1938,7 @@ function setActivityType(actId, type, day, freq){
 }
 function moveActivity(sectionId, actId, dir){
   collectNames();
-  const sec = SECTIONS.find(s=>s.id===sectionId); if(!sec) return;
+  const sec = getSections().find(s=>s.id===sectionId); if(!sec) return;
   const full = orderedActivities(sec, true).map(a=>a.id);
   const idx = full.indexOf(actId), j = idx+dir;
   if(idx<0 || j<0 || j>=full.length) return;
@@ -1531,9 +1950,10 @@ function moveActivity(sectionId, actId, dir){
   window.scrollTo(0, scrollY);
 }
 function onResetNames(){
-  if(!confirm("Ripristinare tutti i nomi predefiniti? (nomi sezioni, attività built-in; le attività custom restano)")) return;
-  data._labels={}; data._sectionNames={}; data._updatedAt=Date.now(); schedulePush(); renderSettings();
-  msg("nameMsg","Nomi ripristinati.","info");
+  if(!confirm("Ripristinare tutti i nomi predefiniti? (nomi sezioni originali, attività built-in; le sezioni e attività create da te restano)")) return;
+  data._labels={}; data._sectionNames={}; data._sectionColors={}; data._sectionOrder=[];
+  data._updatedAt=Date.now(); schedulePush(); renderSettings();
+  msg("nameMsg","Nomi e ordine ripristinati.","info");
 }
 function onResetHistoryFromToday(){
   if(!confirm("Cancellare tutto lo storico delle settimane passate e azzerare i giorni precedenti a oggi?\n\nLe impostazioni, le tue attività personalizzate e le spunte di oggi verranno mantenute.")) return;
@@ -1639,6 +2059,40 @@ function render(){
 
 /* ===================== Eventi ===================== */
 document.getElementById("weekView").addEventListener("click", function(e){
+  const newAreaBtn = e.target.closest("#weekNewAreaBtn");
+  if(newAreaBtn){
+    view = "settings";
+    isNewAreaCardOpen = true;
+    setTabs();
+    render();
+    const card = document.getElementById("newAreaCard");
+    if(card) card.scrollIntoView({behavior:'smooth'});
+    const inp = document.getElementById("newAreaName");
+    if(inp) inp.focus();
+    return;
+  }
+  const goActBtn = e.target.closest(".go-settings-act");
+  if(goActBtn){
+    view = "settings";
+    setTabs();
+    render();
+    const sid = goActBtn.dataset.sec;
+    const addBtn = document.querySelector("[data-addact='"+sid+"']");
+    if(addBtn){
+      addBtn.click();
+      addBtn.scrollIntoView({behavior:'smooth'});
+    }
+    return;
+  }
+  const exTarget = e.target.closest(".lblname.has-ex");
+  if(exTarget){
+    e.preventDefault();
+    e.stopPropagation();
+    const actId = exTarget.dataset.act;
+    const secId = exTarget.dataset.sec || "fisica";
+    window.location.href = exHref(actId, secId);
+    return;
+  }
   if(isSharedMode) return;
   const btn=e.target.closest(".cell"); if(!btn || !btn.dataset.act) return;
   const key=fmtKey(viewMonday), actId=btn.dataset.act, day=parseInt(btn.dataset.day,10);
@@ -1655,6 +2109,19 @@ document.getElementById("todayView").addEventListener("click", function(e){
   if(isSharedMode) return;
   const row=e.target.closest(".focuschip") || e.target.closest(".todayrow");
   if(!row || !row.dataset.act) return;
+
+  // Se l'utente clicca sul nome esatto di un'attività che ha esercizi, apri gli esercizi
+  const exTarget = e.target.closest(".trlabelname.has-ex");
+  if(exTarget){
+    e.preventDefault();
+    e.stopPropagation();
+    const actId = exTarget.dataset.act || row.dataset.act;
+    const secId = exTarget.dataset.sec || "fisica";
+    window.location.href = exHref(actId, secId);
+    return;
+  }
+
+  // Altrimenti (spunta, riga o attività senza esercizi) -> metti come completato
   const key=fmtKey(getMonday(todayViewDate)), actId=row.dataset.act, day=parseInt(row.dataset.day,10);
   const was=getCell(key,actId,day);
   const before=todayCounts(todayViewDate);
@@ -1739,7 +2206,7 @@ async function checkUpdate(){
 if(!isSharedMode && repairData()) saveLocal();   // pulizia fantasmi/doppioni custom all'apertura
 // Popola subito DEFAULT_LABEL con i nomi delle custom GIÀ salvate, così il primo
 // render di "Oggi" mostra i nomi e non gli id "cust_…" (reconcile lo rifà dopo dalla sync).
-for(const sec of SECTIONS){
+for(const sec of getSections()){
   const cs=(data._customActivities&&data._customActivities[sec.id])||[];
   cs.forEach(a=>{ if(a && a.id && a.name && !DEFAULT_LABEL[a.id]) DEFAULT_LABEL[a.id]=a.name; });
 }
