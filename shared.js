@@ -73,6 +73,7 @@ const DEFAULT_ACTIVITY_NAMES = {
    una alla volta, distanziate, e con ritentativo dopo la pausa imposta da Pantry. */
 const PANTRY_GAP_MS   = 5000;
 const PANTRY_RETRY_MS = 10000;
+const PANTRY_TIMEOUT_MS = 15000;  // una richiesta appesa non deve bloccare la coda
 let _pantryQueue = Promise.resolve();
 let _pantryNextAt = 0;
 function pantryFetch(url, opts){
@@ -82,7 +83,11 @@ function pantryFetch(url, opts){
       if(wait > 0) await new Promise(r=>setTimeout(r, wait));
       _pantryNextAt = Date.now() + PANTRY_GAP_MS;
       try{
-        const r = await fetch(url, opts);
+        const ctrl = new AbortController();
+        const timer = setTimeout(()=>ctrl.abort(), PANTRY_TIMEOUT_MS);
+        let r;
+        try{ r = await fetch(url, Object.assign({}, opts, {signal: ctrl.signal})); }
+        finally{ clearTimeout(timer); }
         if(r.status !== 429 || attempt >= 2) return r;
       }catch(e){
         if(attempt >= 2) throw new Error("Pantry non risponde (limite richieste o rete assente)");
