@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790473000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790491296";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -348,13 +348,13 @@ function paintSync(){
 async function pullRemote(){
   if(!pantryId) return undefined;
   try{
-    const r = await fetch(pantryUrl(), {method:"GET", cache:"no-store"});
+    const r = await pantryFetch(pantryUrl(), {method:"GET", cache:"no-store"});
     if(r.status===400 || r.status===404){
       const testo = await r.text().catch(()=>"");
       if(/pantry with id/i.test(testo) && /not found/i.test(testo)) return "NOPANTRY";
       // Verifica diretta se è il codice Pantry a non esistere
       try {
-        const pCheck = await fetch("https://getpantry.cloud/apiv1/pantry/" + encodeURIComponent(pantryId), {method:"GET", cache:"no-store"});
+        const pCheck = await pantryFetch("https://getpantry.cloud/apiv1/pantry/" + encodeURIComponent(pantryId), {method:"GET", cache:"no-store"});
         if(!pCheck.ok && (pCheck.status === 400 || pCheck.status === 404)){
           const pTxt = await pCheck.text().catch(()=>"");
           if(/pantry with id/i.test(pTxt) && /not found/i.test(pTxt)) return "NOPANTRY";
@@ -491,12 +491,14 @@ function mergeData(local, remote){
 function safeRender(){ const a=document.activeElement; if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA")) return; render(); }
 function hasRealData(o){ return Object.keys(o||{}).some(k=>!k.startsWith("_") && o[k] && Object.values(o[k]).some(arr=>Array.isArray(arr)&&arr.some(Boolean))); }
 let lastPushError = "";
-async function doPush(){
+async function doPush(freshRemote){
   if(isSharedMode || !pantryId) return false;
   setSync("saving");
   lastPushError = "";
   try{
-    const remote = await pullRemote();              // leggi-unisci-scrivi: non sovrascrivo il cloud
+    // leggi-unisci-scrivi: non sovrascrivo il cloud. Se il chiamante ha appena letto
+    // il cloud (reconcile / collegamento) riuso quella lettura: una richiesta in meno a Pantry.
+    const remote = freshRemote !== undefined ? freshRemote : await pullRemote();
     if(remote==="ERR" || remote==="NOPANTRY"){
       lastPushError = "Lettura cloud fallita (" + remote + ")";
       setSync("error");
@@ -508,7 +510,7 @@ async function doPush(){
       repairData();   // mantieni puliti anche i dati riletti prima di riscrivere
       if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
     }
-    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+    const r = await pantryFetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
     setSync(r.ok ? "ok" : "error");
     if(!r.ok){
       const t = await r.text().catch(()=>"");
@@ -563,7 +565,7 @@ async function reconcile(){
     if(!isSharedMode && JSON.stringify(data)!==before){ saveLocal(); }
     render();
     if(!isSharedMode){
-      if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush();  // allinea il cloud al merge
+      if(JSON.stringify(data)!==JSON.stringify(stripMeta(remote))) doPush(remote);  // allinea il cloud al merge
       else setSync("ok");
     } else {
       setSync("ok");
@@ -579,7 +581,7 @@ async function reconcile(){
 async function syncExercisesIndex(){
   if(!pantryId || isSharedMode) return;
   try {
-    const res = await fetch("https://getpantry.cloud/apiv1/pantry/" + pantryId + "/basket/esercizi", { cache: "no-store" });
+    const res = await pantryFetch("https://getpantry.cloud/apiv1/pantry/" + pantryId + "/basket/esercizi", { cache: "no-store" });
     if(res.ok){
       const remoteEx = await res.json();
       if(remoteEx && typeof remoteEx === "object"){
@@ -1855,30 +1857,11 @@ async function onSaveSync(){
   if(!data._deletedActivities) data._deletedActivities={};
   saveLocal(); render();
   msg("syncMsg","Salvataggio nel cloud…","info");
-  const scritto = await doPush();
+  const scritto = await doPush(remote);
   if(scritto){
     msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
   } else {
-    // Tentativo di scrittura diretta se il push unificato ha incontrato un errore
-    let directOk = false;
-    let directErr = "";
-    try {
-      const rDirect = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
-      directOk = rDirect.ok;
-      if(!directOk){
-        const tDirect = await rDirect.text().catch(()=>"");
-        directErr = "HTTP " + rDirect.status + (tDirect ? " " + tDirect.slice(0, 80) : "");
-      }
-    } catch(e){
-      directErr = e && e.message ? e.message : String(e);
-    }
-    if(directOk){
-      setSync("ok");
-      msg("syncMsg","✅ Collegato! Dati salvati e sincronizzati con il cloud.","ok");
-    } else {
-      const detail = directErr || lastPushError || "connessione rifiutata";
-      msg("syncMsg","❌ Il cloud non ha accettato i dati: " + esc(detail) + ". Riprova tra poco.","err");
-    }
+    msg("syncMsg","❌ Il cloud non ha accettato i dati: " + esc(lastPushError || "connessione rifiutata") + ". Riprova tra poco.","err");
   }
 }
 function onDiscSync(){

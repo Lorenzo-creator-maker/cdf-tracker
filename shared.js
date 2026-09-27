@@ -66,6 +66,35 @@ const DEFAULT_ACTIVITY_NAMES = {
   argD: "Ipnovendita", argE: "Montemagno", argG: "Argomento G"
 };
 
+/* ===================== Coda richieste Pantry =====================
+   getpantry.cloud accetta ~2 richieste ravvicinate per IP, poi risponde 429 per ~10 s.
+   La risposta 429 NON ha l'header CORS: nel browser appare come errore di rete
+   ("Load failed" / "Failed to fetch"). Tutte le chiamate Pantry passano da qui:
+   una alla volta, distanziate, e con ritentativo dopo la pausa imposta da Pantry. */
+const PANTRY_GAP_MS   = 5000;
+const PANTRY_RETRY_MS = 10000;
+let _pantryQueue = Promise.resolve();
+let _pantryNextAt = 0;
+function pantryFetch(url, opts){
+  const run = async ()=>{
+    for(let attempt = 0; ; attempt++){
+      const wait = _pantryNextAt - Date.now();
+      if(wait > 0) await new Promise(r=>setTimeout(r, wait));
+      _pantryNextAt = Date.now() + PANTRY_GAP_MS;
+      try{
+        const r = await fetch(url, opts);
+        if(r.status !== 429 || attempt >= 2) return r;
+      }catch(e){
+        if(attempt >= 2) throw new Error("Pantry non risponde (limite richieste o rete assente)");
+      }
+      _pantryNextAt = Date.now() + PANTRY_RETRY_MS;
+    }
+  };
+  const p = _pantryQueue.then(run, run);
+  _pantryQueue = p.catch(()=>{});
+  return p;
+}
+
 // Export su window per script classici
 if (typeof window !== "undefined") {
   window.BUILTIN_IDS = BUILTIN_IDS;
@@ -75,4 +104,5 @@ if (typeof window !== "undefined") {
   window.PALETTE_COLORS = PALETTE_COLORS;
   window.PALETTE_HEX = PALETTE_HEX;
   window.DEFAULT_ACTIVITY_NAMES = DEFAULT_ACTIVITY_NAMES;
+  window.pantryFetch = pantryFetch;
 }

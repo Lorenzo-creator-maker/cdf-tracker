@@ -192,7 +192,7 @@ async function pullRemote() {
   const pId = getPantryId();
   if (!pId) return null;
   try {
-    const res = await fetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, { cache: 'no-store' });
+    const res = await window.pantryFetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, { cache: 'no-store' });
     if (!res.ok) return null;
     return stripMeta(await res.json());
   } catch { return 'ERR'; }
@@ -202,7 +202,7 @@ async function pushRemote(store) {
   const pId = getPantryId();
   if (!pId) return;
   try {
-    await fetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, {
+    await window.pantryFetch(`https://getpantry.cloud/apiv1/pantry/${pId}/basket/${EX_BASKET}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(store),
