@@ -94,10 +94,13 @@ const EX_BASKET = 'esercizi';
 
 const getPantryId = () => {
   try {
-    let p = localStorage.getItem('cdfPantryId') || '';
-    p = p.trim().replace(/['"“”;<>\/\s]/g, '');
-    const m = p.match(/(?:pantry\/|id=)([0-9a-fA-F-]{10,})/i);
-    return m ? m[1] : p;
+    const p = String(localStorage.getItem('cdfPantryId') || '').trim();
+    if (!p) return '';
+    const uuidMatch = p.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
+    if (uuidMatch) return uuidMatch[0].toLowerCase();
+    const m = p.match(/(?:pantry\/|id[:=\s]+)?([0-9a-fA-F-]{20,})/i);
+    if (m) return m[1].replace(/[^0-9a-fA-F-]/g, '').toLowerCase();
+    return p.replace(/['"“”;<>\/\s:]/g, '').replace(/\.+$/, '').trim();
   } catch { return ''; }
 };
 

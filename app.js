@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790470000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790471000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -152,11 +152,12 @@ function hasExercises(actId, lbl){
 /* ===================== Funzioni per Condivisione & Pantry ===================== */
 function cleanPantryId(input){
   if(!input) return "";
-  let s = String(input).trim();
-  const m = s.match(/(?:pantry\/|id=)([0-9a-fA-F-]{10,})/i);
-  if(m) return m[1];
-  s = s.replace(/['"“”;<>\/\s]/g, "").trim();
-  return s;
+  const s = String(input).trim();
+  const uuidMatch = s.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
+  if(uuidMatch) return uuidMatch[0].toLowerCase();
+  const hexMatch = s.match(/(?:pantry\/|id[:=\s]+)?([0-9a-fA-F-]{20,})/i);
+  if(hexMatch) return hexMatch[1].replace(/[^0-9a-fA-F-]/g, "").toLowerCase();
+  return s.replace(/['"“”;<>\/\s:]/g, "").replace(/\.+$/, "").trim();
 }
 
 function encodeSnapshot(obj){
@@ -349,13 +350,16 @@ async function pullRemote(){
   try{
     const r = await fetch(pantryUrl(), {method:"GET", cache:"no-store"});
     if(r.status===400 || r.status===404){
-      // Due casi diversi con lo stesso codice di errore. Il secchiello che
-      // manca e' normale al primo collegamento: la prima scrittura lo crea.
-      // Il PANTRY che manca no: vuol dire codice sbagliato o pantry sparito,
-      // e trattarlo come «vuoto» faceva dire «Sincronizzato» a un'app che non
-      // salvava niente nel cloud (trovato il 16/09/2026).
       const testo = await r.text().catch(()=>"");
       if(/pantry with id/i.test(testo) && /not found/i.test(testo)) return "NOPANTRY";
+      // Verifica diretta se è il codice Pantry a non esistere
+      try {
+        const pCheck = await fetch("https://getpantry.cloud/apiv1/pantry/" + encodeURIComponent(pantryId), {method:"GET", cache:"no-store"});
+        if(!pCheck.ok && (pCheck.status === 400 || pCheck.status === 404)){
+          const pTxt = await pCheck.text().catch(()=>"");
+          if(/pantry with id/i.test(pTxt) && /not found/i.test(pTxt)) return "NOPANTRY";
+        }
+      } catch(e){}
       return null;
     }
     if(!r.ok) throw new Error("HTTP "+r.status);
@@ -498,7 +502,7 @@ async function doPush(){
       repairData();   // mantieni puliti anche i dati riletti prima di riscrivere
       if(JSON.stringify(data)!==before){ saveLocal(); safeRender(); }
     }
-    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, keepalive:true, body:JSON.stringify(data)});
+    const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
     setSync(r.ok ? "ok" : "error");
     return r.ok;
   }catch(e){ setSync("error"); return false; }
