@@ -5,7 +5,7 @@
    Le chiamate a getpantry.cloud passano direttamente alla rete (no cache).
 */
 
-const CACHE_NAME = "cdf-v1";
+const CACHE_NAME = "cdf-v2";
 const APP_URL = "/cdf-tracker/";  // path su GitHub Pages
 const APP_FILE = "/cdf-tracker/index.html";
 

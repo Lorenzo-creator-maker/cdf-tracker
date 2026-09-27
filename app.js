@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790472000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790473000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -490,12 +490,18 @@ function mergeData(local, remote){
 }
 function safeRender(){ const a=document.activeElement; if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA")) return; render(); }
 function hasRealData(o){ return Object.keys(o||{}).some(k=>!k.startsWith("_") && o[k] && Object.values(o[k]).some(arr=>Array.isArray(arr)&&arr.some(Boolean))); }
+let lastPushError = "";
 async function doPush(){
   if(isSharedMode || !pantryId) return false;
   setSync("saving");
+  lastPushError = "";
   try{
     const remote = await pullRemote();              // leggi-unisci-scrivi: non sovrascrivo il cloud
-    if(remote==="ERR" || remote==="NOPANTRY"){ setSync("error"); return false; } // lettura fallita: NON scrivere (sovrascriverebbe il cloud senza unire)
+    if(remote==="ERR" || remote==="NOPANTRY"){
+      lastPushError = "Lettura cloud fallita (" + remote + ")";
+      setSync("error");
+      return false;
+    }
     if(remote){
       const before = JSON.stringify(data);
       data = mergeData(data, remote);
@@ -504,8 +510,16 @@ async function doPush(){
     }
     const r = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
     setSync(r.ok ? "ok" : "error");
+    if(!r.ok){
+      const t = await r.text().catch(()=>"");
+      lastPushError = "HTTP " + r.status + (t ? " (" + t.slice(0, 100) + ")" : "");
+    }
     return r.ok;
-  }catch(e){ setSync("error"); return false; }
+  }catch(e){
+    lastPushError = e && e.message ? e.message : String(e);
+    setSync("error");
+    return false;
+  }
 }
 function schedulePush(){
   if(isSharedMode) return;
@@ -1847,15 +1861,23 @@ async function onSaveSync(){
   } else {
     // Tentativo di scrittura diretta se il push unificato ha incontrato un errore
     let directOk = false;
+    let directErr = "";
     try {
       const rDirect = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
       directOk = rDirect.ok;
-    } catch(e){}
+      if(!directOk){
+        const tDirect = await rDirect.text().catch(()=>"");
+        directErr = "HTTP " + rDirect.status + (tDirect ? " " + tDirect.slice(0, 80) : "");
+      }
+    } catch(e){
+      directErr = e && e.message ? e.message : String(e);
+    }
     if(directOk){
       setSync("ok");
       msg("syncMsg","✅ Collegato! Dati salvati e sincronizzati con il cloud.","ok");
     } else {
-      msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva. Riprova tra poco.","err");
+      const detail = directErr || lastPushError || "connessione rifiutata";
+      msg("syncMsg","❌ Il cloud non ha accettato i dati: " + esc(detail) + ". Riprova tra poco.","err");
     }
   }
 }
@@ -2220,9 +2242,12 @@ async function checkUpdate(){
     // APP_VERSION vive in app.js (non più in index.html): va letta da qui.
     const txt = await fetch("app.js?_cb=" + Date.now(), {cache:"no-store"}).then(r=>r.text());
     const m = txt.match(/APP_VERSION\s*=\s*"([^"]+)"/);
-    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "__BUILD_TS__" && !sessionStorage.getItem("cdfReloaded")){
-      sessionStorage.setItem("cdfReloaded","1");
-      location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+    if(m && m[1] && m[1] !== APP_VERSION && m[1] !== "__BUILD_TS__"){
+      const lastReloaded = sessionStorage.getItem("cdfReloadedVer");
+      if(lastReloaded !== m[1]){
+        sessionStorage.setItem("cdfReloadedVer", m[1]);
+        location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+      }
     }
   }catch(e){}
 }
