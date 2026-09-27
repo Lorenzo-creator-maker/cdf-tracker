@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790471000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790472000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -399,7 +399,7 @@ function mergeData(local, remote){
   out._ts = mergedTs;
 
   const weeks = {};
-  Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_")) weeks[k]=1; });
+  Object.keys(local).concat(Object.keys(remote)).forEach(k=>{ if(!k.startsWith("_") && /^\d{4}-\d{2}-\d{2}$/.test(k)) weeks[k]=1; });
   Object.keys(weeks).forEach(wk=>{
     if(wk < MIN_WEEK) return; // Filtra le settimane precedenti
     const merged = {};
@@ -686,6 +686,13 @@ function mergeChecks(fromId, toId){
 }
 function repairData(){
   let changed=false;
+  // Pulizia chiavi non-date orfane (es. test o spazzatura non private)
+  Object.keys(data).forEach(k => {
+    if(!k.startsWith("_") && !/^\d{4}-\d{2}-\d{2}$/.test(k)){
+      delete data[k];
+      changed = true;
+    }
+  });
   if(data._customSections){
     const secTomb = data._deletedSections || {};
     const beforeSecLen = data._customSections.length;
@@ -1835,8 +1842,22 @@ async function onSaveSync(){
   saveLocal(); render();
   msg("syncMsg","Salvataggio nel cloud…","info");
   const scritto = await doPush();
-  if(scritto) msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
-  else msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva. Riprova tra poco.","err");
+  if(scritto){
+    msg("syncMsg","✅ Collegato! Dati uniti e sincronizzati con il cloud.","ok");
+  } else {
+    // Tentativo di scrittura diretta se il push unificato ha incontrato un errore
+    let directOk = false;
+    try {
+      const rDirect = await fetch(pantryUrl(), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data)});
+      directOk = rDirect.ok;
+    } catch(e){}
+    if(directOk){
+      setSync("ok");
+      msg("syncMsg","✅ Collegato! Dati salvati e sincronizzati con il cloud.","ok");
+    } else {
+      msg("syncMsg","❌ Il cloud non ha accettato i dati: la sincronizzazione NON è attiva. Riprova tra poco.","err");
+    }
+  }
 }
 function onDiscSync(){
   if(!confirm("Disconnettere la sincronizzazione su questo dispositivo? I dati locali restano.")) return;
