@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790491922";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1790942485";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -294,6 +294,14 @@ if(isSharedMode){
 }
 
 let todayViewDate = new Date(); // Data mostrata nel tab Oggi
+/* Sposta il giorno del tab Oggi: si può tornare indietro fino a RESET_DATE, mai oltre oggi */
+function shiftTodayView(delta){
+  const d = addDays(todayViewDate, delta); d.setHours(12,0,0,0);
+  const k = fmtKey(d);
+  if(k < RESET_DATE || k > fmtKey(new Date())) return false;
+  todayViewDate = k === fmtKey(new Date()) ? new Date() : d;
+  return true;
+}
 
 /* Sezioni richiuse nel tab Oggi — preferenza per-dispositivo, non sincronizzata */
 const TFOLD_KEY = "cdfTodayFold";
@@ -989,15 +997,27 @@ function renderToday(){
 
   const ratio = totTot? totDone/totTot : 0;
   const dateStr = WEEKDAYS_LONG[ti]+" "+dateNum+" "+MONTHS_LONG[now.getMonth()];
+  const isYesterday = fmtKey(now) === fmtKey(addDays(new Date(),-1));
+  const dayTitle = isActualToday ? 'Oggi' : (isYesterday ? 'Ieri' : 'Giorno passato');
+
+  // Navigazione tra i giorni: permette di spuntare attività fatte nei giorni precedenti
+  const canPrevDay = fmtKey(addDays(now,-1)) >= RESET_DATE;
+  const dayArrow = (dir, enabled, lbl) => '<button class="dn-arrow" data-dayshift="'+dir+'" aria-label="'+lbl+'"'+(enabled?'':' disabled')+'>'+(dir<0?'‹':'›')+'</button>';
+  const daynav = isActualToday ? '' :
+    '<div class="past-note"><span>'+(isSharedMode ? 'Stai guardando un giorno passato.' : 'Giorno passato: tocca le attività per segnarle come fatte.')+'</span>'+
+    '<button class="dn-today" data-daytoday="1">Torna a oggi</button></div>';
 
   // Serie / streak
   const streak = currentStreak();
   let streakChip='';
-  if(streak>0) streakChip = '<div class="th-streak">🔥 '+streak+' giorn'+(streak===1?'o':'i')+' di fila</div>';
+  if(!isActualToday) streakChip='';                  // la serie si riferisce a oggi: nei giorni passati non la mostriamo
+  else if(streak>0) streakChip = '<div class="th-streak">🔥 '+streak+' giorn'+(streak===1?'o':'i')+' di fila</div>';
   else if(!firstTime) streakChip = '<div class="th-streak th-streak-0">🔥 Riparti oggi</div>';
 
   const hero = '<div class="todayhero"><div class="th-top">'+
-      '<div><div class="th-title">'+(isActualToday?'Oggi':'Giorno')+'</div><div class="th-date">'+dateStr+'</div>'+streakChip+'</div>'+
+      '<div><div class="th-dayrow">'+dayArrow(-1, canPrevDay, 'Giorno precedente')+
+        '<div><div class="th-title">'+dayTitle+'</div><div class="th-date">'+dateStr+'</div></div>'+
+        dayArrow(1, !isActualToday, 'Giorno successivo')+'</div>'+streakChip+'</div>'+
       '<div><div class="th-pct" style="color:'+gradColor(ratio)+'">'+pctTxt(ratio)+'</div>'+
       '<div class="th-frac">'+totDone+' / '+totTot+' fatte</div></div></div>'+
       '<div class="th-bar"><i style="width:'+(ratio*100)+'%;background:'+gradColor(ratio)+'"></i></div></div>';
@@ -1011,14 +1031,16 @@ function renderToday(){
   }
 
   if(totTot===0){
-    document.getElementById("todayView").innerHTML = welcome + hero +
-      '<div class="today-empty">🌙 Niente in programma oggi.<br>Goditi la pausa, oppure aggiungi attività da ⚙️.</div>';
+    document.getElementById("todayView").innerHTML = welcome + daynav + hero +
+      (isActualToday
+        ? '<div class="today-empty">🌙 Niente in programma oggi.<br>Goditi la pausa, oppure aggiungi attività da ⚙️.</div>'
+        : '<div class="today-empty">🌙 Niente in programma in questo giorno.</div>');
     return;
   }
 
   // 💡 Recupera oggi: attività di oggi non ancora fatte e trascurate negli ultimi giorni attivi
   let focus='';
-  if(!firstTime){
+  if(!firstTime && isActualToday){
     const activeDays = recentActiveDays(28);
     if(activeDays.length >= 3){
       const cand = todayActs.filter(x=>!x.on && (!x.a.freq || x.a.freq === 7)).map(x=>{
@@ -1047,7 +1069,7 @@ function renderToday(){
 
   let note;
   if(totDone===totTot){
-    note = '<div class="today-note">Tutto fatto per oggi 🎉</div>';
+    note = '<div class="today-note">Tutto fatto per '+(isActualToday?'oggi':'questo giorno')+' 🎉</div>';
   } else {
     const hidden = Math.max(0, totVisible - totTot);
     if(hidden>0){
@@ -1059,12 +1081,12 @@ function renderToday(){
       if(freqHidden>0) parts.push(freqHidden+' con obiettivo sett. raggiunto');
       const otherHidden = hidden - freqHidden;
       if(otherHidden>0) parts.push(otherHidden+' con giorno fisso');
-      note = '<div class="today-note">'+hidden+' attività non in programma oggi'+(parts.length ? ' ('+parts.join(', ')+')' : '')+'.</div>';
+      note = '<div class="today-note">'+hidden+' attività non in programma '+(isActualToday?'oggi':'in questo giorno')+(parts.length ? ' ('+parts.join(', ')+')' : '')+'.</div>';
     } else {
       note = '';
     }
   }
-  document.getElementById("todayView").innerHTML = welcome + hero + focus + body + note;
+  document.getElementById("todayView").innerHTML = welcome + daynav + hero + focus + body + note;
 }
 
 /* ===================== Vista settimana ===================== */
@@ -2136,6 +2158,9 @@ document.getElementById("todayView").addEventListener("click", function(e){
     todayFold[fh.dataset.fold] = !todayFold[fh.dataset.fold];
     saveFold(); renderToday(); return;
   }
+  const ds=e.target.closest("[data-dayshift]");
+  if(ds){ if(!ds.disabled && shiftTodayView(parseInt(ds.dataset.dayshift,10))) renderToday(); return; }
+  if(e.target.closest("[data-daytoday]")){ todayViewDate = new Date(); renderToday(); return; }
   if(isSharedMode) return;
   const row=e.target.closest(".focuschip") || e.target.closest(".todayrow");
   if(!row || !row.dataset.act) return;
@@ -2162,7 +2187,9 @@ document.getElementById("todayView").addEventListener("click", function(e){
     const chk=document.querySelector('.todayrow[data-act="'+CSS.escape(actId)+'"][data-day="'+day+'"] .trcheck');
     if(chk) chk.classList.add("pop");
     // Undo toast: consente di annullare la spunta entro 3 secondi
-    showUndoToast('✓ '+esc(actLabel(actId)), function(){
+    const isPast = fmtKey(todayViewDate) !== fmtKey(new Date());
+    const whenTxt = isPast ? ' <small>('+todayViewDate.getDate()+' '+MONTHS_LONG[todayViewDate.getMonth()]+')</small>' : '';
+    showUndoToast('✓ '+esc(actLabel(actId))+whenTxt, function(){
       setCell(key, actId, day, false);
       render();
     });
@@ -2265,13 +2292,11 @@ if(todayContainer) {
     touchEndX = e.changedTouches[0].screenX;
     if (touchEndX < touchStartX - 60) {
       // Swipe left -> Next day
-      todayViewDate = new Date(todayViewDate.getTime() + 86400000);
-      renderToday();
+      if(shiftTodayView(1)) renderToday();
     }
     if (touchEndX > touchStartX + 60) {
       // Swipe right -> Prev day
-      todayViewDate = new Date(todayViewDate.getTime() - 86400000);
-      renderToday();
+      if(shiftTodayView(-1)) renderToday();
     }
   }, {passive: true});
 }
