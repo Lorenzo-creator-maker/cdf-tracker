@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1790942485";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1795009697";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -973,9 +973,7 @@ function renderToday(){
       else if(a.day!==undefined) tag = '<span class="tag">'+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>';
       const lbl = esc(actLabel(a.id));
       const hasEx = hasExercises(a.id, actLabel(a.id));
-      const nameMarkup = hasEx
-        ? '<span class="trlabelname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Vedi esercizi di '+lbl+'">'+lbl+' <span class="ex-dot">📚</span></span>'
-        : '<span class="trlabelname" data-act="'+a.id+'">'+lbl+'</span>';
+      const nameMarkup = '<span class="trlabelname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Esercizi di '+lbl+'">'+lbl+(hasEx ? ' <span class="ex-dot">📚</span>' : '')+'</span>';
       rows += '<div class="todayrow'+(on?' done':'')+'" role="checkbox" aria-checked="'+(on?'true':'false')+'" '+
               'aria-label="'+lbl+'" data-act="'+a.id+'" data-day="'+dayIdx+'">'+
               '<span class="trlabel">'+nameMarkup+tag+'</span>'+
@@ -1119,9 +1117,7 @@ function renderWeek(){
                 : (a.day!==undefined ? '<span class="tag">1×/sett · '+["Lun","Mar","Mer","Gio","Ven","Sab","Dom"][a.day]+'</span>' : '');
         const lbl = esc(actLabel(a.id));
         const hasEx = hasExercises(a.id, actLabel(a.id));
-        const lblMarkup = hasEx
-          ? '<span class="lblname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Vedi esercizi di '+lbl+'">'+lbl+' <span class="ex-dot">📚</span>'+tag+'</span>'
-          : '<span class="lblname">'+lbl+tag+'</span>';
+        const lblMarkup = '<span class="lblname has-ex" data-act="'+a.id+'" data-sec="'+s.id+'" title="Esercizi di '+lbl+'">'+lbl+(hasEx ? ' <span class="ex-dot">📚</span>' : '')+tag+'</span>';
         html += '<tr><td class="lbl">'+lblMarkup+'</td>';
 
         const actSet = activeDays(a, viewMonday);
