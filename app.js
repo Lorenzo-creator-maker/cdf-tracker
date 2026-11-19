@@ -2260,7 +2260,9 @@ async function checkUpdate(){
       const lastReloaded = sessionStorage.getItem("cdfReloadedVer");
       if(lastReloaded !== m[1]){
         sessionStorage.setItem("cdfReloadedVer", m[1]);
-        location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+        // Il ricaricamento tiene la vista aperta (es. Storico appena scelto dalla Libreria).
+        const keepHash = Object.keys(HASH_VIEW).find(function(h){ return HASH_VIEW[h]===view; }) || "";
+        location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]) + keepHash);
       }
     }
   }catch(e){}

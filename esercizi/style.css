@@ -195,15 +195,6 @@ body {
   transform: scale(0.97);
 }
 
-.nav-btn.home-btn {
-  color: #10b981;
-  background: var(--verde-soft);
-  border-color: var(--verde-line);
-}
-.nav-btn.home-btn:hover {
-  background: rgba(16, 185, 129, 0.25);
-  color: #10b981;
-}
 
 .nav-btn.library-btn {
   color: var(--text-primary);
