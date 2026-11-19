@@ -1,0 +1,42 @@
+/* ===================== Barra in basso (19/11/2026) =====================
+   Come nell'app dei Promemoria: Oggi, Settimana, Storico, Esercizi e
+   Impostazioni stanno in basso, cosi' il resto dello schermo e' tutto per il
+   contenuto. La usano sia l'app (index.html) sia la Libreria Esercizi
+   (esercizi/index.html): per questo ha i suoi colori e non le variabili di
+   una delle due pagine. Il tema scuro lo dice la classe .dark su <html>, che
+   entrambe le pagine mettono quando serve. */
+.bottom-nav{
+  --bn-bg:#ffffff; --bn-line:#e2e8f0; --bn-muted:#64748b; --bn-on:#0f172a;
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+  height:calc(56px + env(safe-area-inset-bottom, 0px));
+  /* Su schermi larghi le voci restano nella colonna dell'app (760 px). */
+  padding:0 max(0px, calc((100% - 760px) / 2)) calc(env(safe-area-inset-bottom, 0px) * 0.3);
+  background:var(--bn-bg);border-top:1px solid var(--bn-line);
+  box-sizing:border-box;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+:root.dark .bottom-nav{
+  --bn-bg:#1e293b; --bn-line:#334155; --bn-muted:#94a3b8; --bn-on:#f1f5f9;
+}
+.bottom-nav.hidden{display:none;}
+.bn-item{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  min-width:0;height:100%;min-height:56px;padding:3px 0;margin:0;box-sizing:border-box;
+  background:none;border:0;border-radius:0;
+  color:var(--bn-muted);font:inherit;font-size:11px;font-weight:700;
+  text-decoration:none;cursor:pointer;
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.bn-item.active{color:var(--bn-on);}
+.bn-icon{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:48px;height:30px;border-radius:99px;
+  transition:background .15s ease;
+}
+.bn-item.active .bn-icon{background:color-mix(in srgb, var(--bn-on) 12%, transparent);}
+.bn-icon svg{width:24px;height:24px;}
+.bn-text{max-width:100%;overflow:hidden;line-height:1;white-space:nowrap;text-overflow:ellipsis;}
+/* Sui telefoni stretti «Impostazioni» non ci starebbe: scritte un filo piu' piccole. */
+@media (max-width:380px){ .bn-item{font-size:10px;} }

@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1795009697";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1795080000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -610,6 +610,13 @@ function weekDates(monday){ const a=[]; for(let i=0;i<7;i++) a.push(addDays(mond
 
 let viewMonday = getMonday(new Date());
 let view = isSharedMode ? "history" : "today";  // link condiviso: solo Storico
+// Dalla Libreria Esercizi la barra in basso torna qui con #settimana, #storico o
+// #impostazioni: si apre quella vista e si toglie il segno dall'indirizzo.
+const HASH_VIEW = {"#oggi":"today", "#settimana":"week", "#storico":"history", "#impostazioni":"settings"};
+if(!isSharedMode && HASH_VIEW[location.hash]){
+  view = HASH_VIEW[location.hash];
+  history.replaceState(null, "", location.pathname + location.search);
+}
 
 /* ===================== Colore rosso -> verde ===================== */
 function gradColor(r){ r=Math.max(0,Math.min(1,r||0)); return "hsl("+Math.round(r*125)+",70%,45%)"; }
@@ -2225,7 +2232,8 @@ function setTabs(){
   ["tabToday","tabWeek","tabHistory","tabSettings"].forEach(function(id){
     const isActive = (id==="tabToday" && view==="today") || (id==="tabWeek" && view==="week") || (id==="tabHistory" && view==="history") || (id==="tabSettings" && view==="settings");
     document.getElementById(id).classList.toggle("active", isActive);
-    document.getElementById(id).setAttribute("aria-selected", isActive ? "true" : "false");
+    if(isActive) document.getElementById(id).setAttribute("aria-current", "page");
+    else document.getElementById(id).removeAttribute("aria-current");
   });
   if(isSharedMode){
     document.getElementById("tabSettings").classList.add("hidden");
@@ -2270,6 +2278,7 @@ if(isSharedMode && sharePantryId){
   pantryId = cleanPantryId(sharePantryId);
   initialLoading = true;
 }
+setTabs();
 render();
 if(pantryId) reconcile();
 checkUpdate();

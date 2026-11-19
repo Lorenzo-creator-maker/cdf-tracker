@@ -134,6 +134,8 @@ body {
 .page {
   max-width: 640px;
   margin: 0 auto;
+  /* Spazio per la barra in basso (../nav.css) */
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -987,7 +989,7 @@ body {
    ============================================================ */
 .toast-container {
   position: fixed;
-  bottom: 24px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;

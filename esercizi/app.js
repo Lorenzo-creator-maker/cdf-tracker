@@ -582,11 +582,9 @@ function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuer
 
   return h('div', { className: 'page' },
     h('header', { className: 'header' },
-      h('div', { className: 'header-top-nav' },
-        h('a', { className: 'nav-btn home-btn', href: '../', title: 'Torna all\'app principale ATTIVITÀ' },
-          h(Icon, { d: icons.home, size: 16 }),
-          h('span', null, '← Torna a CDF (Home)')
-        ),
+      // Il ritorno all'app sta nella barra in basso (Oggi): titolo e tema su una riga.
+      h('div', { className: 'header-title-row', style: { justifyContent: 'space-between' } },
+        h('h1', null, '📚 Libreria Esercizi'),
         h('div', { className: 'header-actions' },
           h('button', { className: 'theme-toggle-btn', onClick: toggleTheme, title: isDark ? 'Passa a tema chiaro' : 'Passa a tema scuro' },
             isDark ? '☀️' : '🌙'
@@ -596,9 +594,6 @@ function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuer
             'Sync'
           )
         )
-      ),
-      h('div', { className: 'header-title-row' },
-        h('h1', null, '📚 Libreria Esercizi'),
       ),
       h('div', { className: 'header-stats-chips' },
         h('span', { className: 'stat-chip' }, `${activeActivities.length} attività`),
@@ -883,10 +878,6 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
     h('header', { className: 'header' },
       h('div', { className: 'header-top-nav' },
         h('div', { className: 'header-nav-group' },
-          h('a', { className: 'nav-btn home-btn', href: '../', title: 'Torna subito alla schermata principale di CDF' },
-            h(Icon, { d: icons.home, size: 15 }),
-            h('span', null, '← Home CDF')
-          ),
           h('button', { className: 'nav-btn library-btn', onClick: onBack, title: 'Torna all\'elenco di tutte le schede' },
             h(Icon, { d: icons.book, size: 15 }),
             h('span', null, '📚 Tutte le schede')

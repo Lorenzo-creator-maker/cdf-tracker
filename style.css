@@ -34,7 +34,7 @@ body{
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   -webkit-text-size-adjust:100%;
 }
-.wrap{max-width:760px;margin:0 auto;padding:12px 12px 60px;}
+.wrap{max-width:760px;margin:0 auto;padding:12px 12px 76px;}  /* 76: sopra la barra in basso (nav.css) */
 
 /* ===================== Header & Navigation ===================== */
 header{position:sticky;top:0;z-index:20;background:var(--headerBg);
@@ -48,15 +48,6 @@ header{position:sticky;top:0;z-index:20;background:var(--headerBg);
 .sync{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;
   color:var(--muted);background:var(--card);border:1px solid var(--line);
   padding:5px 9px;border-radius:99px;cursor:pointer;}
-.lib-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
-  color:#10b981;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);
-  padding:5px 11px;border-radius:99px;text-decoration:none;transition:all .15s ease;cursor:pointer;}
-.lib-pill:hover{background:rgba(16,185,129,0.22);border-color:rgba(16,185,129,0.5);transform:translateY(-1px);}
-.lib-pill:active{transform:scale(0.97);}
-@media(max-width:540px){
-  .lib-pill .lib-text{display:none;}
-  .lib-pill{padding:5px 8px;}
-}
 .dot{width:8px;height:8px;border-radius:99px;background:#94a3b8;flex:0 0 auto;}
 .dot.ok{background:#22c55e;} .dot.saving{background:#f59e0b;animation:pulse 1s infinite;}
 .dot.error{background:#ef4444;} .dot.off{background:#94a3b8;}
@@ -75,11 +66,6 @@ header{position:sticky;top:0;z-index:20;background:var(--headerBg);
 .hidden{display:none!important;}
 
 /* ===================== Tabs ===================== */
-.tabs{display:flex;gap:6px;margin-top:8px;}
-.tab{flex:1;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--card);
-  font-weight:700;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
-.tab.active{background:var(--primary);color:var(--primary-fg);border-color:var(--primary);}
-.tab.icon{flex:0 0 46px;}
 
 /* ===================== Section cards (week view) ===================== */
 .section{background:var(--card);border-radius:16px;box-shadow:var(--shadow);
@@ -186,7 +172,7 @@ tbody td.rowpct{font-size:11px;font-weight:800;padding-right:10px;width:34px;}
 /* ===================== Feedback (check, toast, confetti) ===================== */
 @keyframes check-pop{0%{transform:scale(.6);}55%{transform:scale(1.2);}100%{transform:scale(1);}}
 .trcheck.pop{animation:check-pop .34s ease;}
-.toast{position:fixed;left:50%;bottom:88px;transform:translate(-50%,16px);z-index:1000;
+.toast{position:fixed;left:50%;bottom:calc(72px + env(safe-area-inset-bottom, 0px));transform:translate(-50%,16px);z-index:1000;
   background:var(--primary);color:var(--primary-fg);font-weight:800;font-size:15px;
   padding:12px 20px;border-radius:99px;box-shadow:0 10px 30px rgba(0,0,0,.28);
   opacity:0;transition:opacity .25s ease,transform .25s ease;pointer-events:none;}
@@ -383,9 +369,8 @@ body.is-shared .todayrow{cursor:default!important;}
 body.is-shared .focuschip{pointer-events:none!important;cursor:default!important;}
 
 
-/* Link condiviso in sola lettura: si vede solo lo Storico, senza schede né comandi dell'app */
-body.is-shared .tabs,
-body.is-shared #libBtn,
+/* Link condiviso in sola lettura: si vede solo lo Storico, senza barra in basso né comandi dell'app */
+body.is-shared #bottomNav,
 body.is-shared #syncBadge{display:none!important;}
 
 /* ===================== Navigazione giorni (tab Oggi) ===================== */
