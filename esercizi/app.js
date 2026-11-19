@@ -546,7 +546,11 @@ function getAreas() {
 
 /* L'attivita' dell'app con questo id ({ name, color, hidden }), o null. */
 function appActivity(id) {
-  for (const area of getAreas()) {
+  // Solo dall'elenco scritto dall'app: il ripiego non conosce i colori veri.
+  let areas = null;
+  try { areas = JSON.parse(localStorage.getItem('cdfAreas_v1') || 'null'); } catch {}
+  if (!Array.isArray(areas)) return null;
+  for (const area of areas) {
     const a = (area.activities || []).find(x => x.id === id);
     if (a) return { name: a.name, color: area.color, hidden: !!a.hidden };
   }
@@ -561,11 +565,17 @@ function addPendingTick(actId) {
   if (!a || a.hidden) return false;  // in Oggi non c'e': niente spunta (ne' messaggio)
   try {
     const date = todayISO();
+    // Le attivita' che Oggi mostra oggi (le scrive l'app). Se l'elenco e' di un
+    // altro giorno si lascia la spunta (l'app la controlla) ma senza promettere.
+    let shown = null;
+    try { shown = JSON.parse(localStorage.getItem('cdfTodayActs_v1') || 'null'); } catch {}
+    const known = shown && shown.date === date && Array.isArray(shown.ids);
+    if (known && !shown.ids.includes(actId)) return false;
     let list = JSON.parse(localStorage.getItem('cdfPendingTicks') || '[]');
     if (!Array.isArray(list)) list = [];
     if (!list.some(t => t && t.act === actId && t.date === date)) list.push({ act: actId, date });
     localStorage.setItem('cdfPendingTicks', JSON.stringify(list));
-    return true;
+    return known;
   } catch { return false; }
 }
 
@@ -578,10 +588,6 @@ const chevron = 'M9 18l6-6-6-6';
 function Home({ store, synced, onOpen, searchQuery, setSearchQuery, isDark, toggleTheme }) {
   const areas = useMemo(getAreas, []);
   const q = searchQuery.trim().toLowerCase();
-
-  const allEx = Object.keys(store).filter(k => !isMeta(k)).flatMap(k => (store[k] && store[k].exercises) || []);
-  const doneN = allEx.filter(doneToday).length;
-  const staleN = allEx.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
 
   const listed = new Set();
   const groups = areas.map(area => ({
@@ -596,6 +602,11 @@ function Home({ store, synced, onOpen, searchQuery, setSearchQuery, isDark, togg
     .filter(k => !isMeta(k) && !listed.has(k) && store[k])
     .map(k => ({ id: k, name: store[k].name || k, color: store[k].color || 'verde', exs: store[k].exercises || [] }));
   if (extra.length) groups.push({ area: { id: '_altre', name: 'Altre schede', emoji: '', color: 'verde' }, rows: extra });
+
+  // I riquadri contano solo le schede mostrate (non quelle delle attivita' nascoste).
+  const allEx = groups.flatMap(g => g.rows.flatMap(r => r.exs));
+  const doneN = allEx.filter(doneToday).length;
+  const staleN = allEx.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
 
   const match = r => !q || r.name.toLowerCase().includes(q) ||
     r.exs.some(e => (e.name || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q));

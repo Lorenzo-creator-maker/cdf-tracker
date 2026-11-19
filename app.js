@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1795100000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1795110000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -2118,6 +2118,7 @@ function render(){
       col suo setCell, così salvataggio e sincronizzazione restano i suoi. */
 const AREAS_KEY = "cdfAreas_v1";
 const PENDING_TICKS_KEY = "cdfPendingTicks";
+const TODAY_ACTS_KEY = "cdfTodayActs_v1";
 function writeAreasForLibrary(){
   if(isSharedMode) return;
   try{
@@ -2135,6 +2136,14 @@ function writeAreasForLibrary(){
     });
     const txt = JSON.stringify(areas);
     if(localStorage.getItem(AREAS_KEY) !== txt) localStorage.setItem(AREAS_KEY, txt);
+    // Le attività che Oggi mostra oggi (giorni fissi e N volte/settimana compresi):
+    // la Libreria dice «segnata anche in Oggi» solo per queste.
+    const now = new Date(), monday = getMonday(now), ti = todayIndex(now), ids = [];
+    getSections().forEach(function(sec){
+      orderedActivities(sec, false).forEach(function(a){ if(appliesToday(a, ti, now.getDate(), monday)) ids.push(a.id); });
+    });
+    const tTxt = JSON.stringify({ date: fmtKey(now), ids: ids });
+    if(localStorage.getItem(TODAY_ACTS_KEY) !== tTxt) localStorage.setItem(TODAY_ACTS_KEY, tTxt);
   }catch(e){}
 }
 function applyPendingTicks(){
@@ -2144,18 +2153,22 @@ function applyPendingTicks(){
   try{ localStorage.removeItem(PENDING_TICKS_KEY); }catch(e){}
   if(!Array.isArray(list)) return false;
   const todayKey = fmtKey(new Date());
-  // Solo attività che Oggi mostra: niente righe per id nascosti o eliminati.
-  const visible = {};
-  getSections().forEach(function(sec){ orderedActivities(sec, false).forEach(function(a){ visible[a.id] = true; }); });
+  // Solo attività che Oggi mostra quel giorno, e sulla stessa casella che
+  // spunterebbe Oggi (per quelle a giorno fisso, il loro giorno).
+  const acts = {};
+  getSections().forEach(function(sec){ orderedActivities(sec, false).forEach(function(a){ acts[a.id] = a; }); });
   let changed = false;
   list.forEach(function(t){
-    const m = t && typeof t.act === "string" && visible[t.act] && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.date || "");
+    const act = t && typeof t.act === "string" && acts[t.act];
+    const m = act && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.date || "");
     if(!m) return;
     const d = new Date(+m[1], +m[2]-1, +m[3], 12);
     const k = fmtKey(d);
     if(k < RESET_DATE || k > todayKey) return;
-    const key = fmtKey(getMonday(d)), day = todayIndex(d);
-    if(!getCell(key, t.act, day)){ setCell(key, t.act, day, true); changed = true; }
+    const monday = getMonday(d), ti = todayIndex(d);
+    if(!appliesToday(act, ti, d.getDate(), monday)) return;
+    const key = fmtKey(monday), day = act.day !== undefined ? act.day : ti;
+    if(!getCell(key, act.id, day)){ setCell(key, act.id, day, true); changed = true; }
   });
   return changed;
 }
