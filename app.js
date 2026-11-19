@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1795080000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1795090000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -2098,11 +2098,60 @@ function render(){
     if(activeEl) activeEl.innerHTML = renderLoadingSkeleton();
     return;
   }
+  writeAreasForLibrary();
   if(view==="today") renderToday();
   else if(view==="week") renderWeek();
   else if(view==="history") renderHistory();
   else renderSettings();
 }
+
+/* ===================== Ponte con la Libreria Esercizi (19/11/2026) =====================
+   1) L'app lascia sul dispositivo l'elenco di aree e attività come lo vede lei
+      (nomi, colori, ordine, senza le nascoste e le eliminate): la Libreria lo
+      legge per mostrare tutte le attività divise per area.
+   2) Quando nella Libreria si finiscono tutti gli esercizi di un'attività, la
+      Libreria lascia una «spunta in attesa» {act, date}: la applica l'app qui,
+      col suo setCell, così salvataggio e sincronizzazione restano i suoi. */
+const AREAS_KEY = "cdfAreas_v1";
+const PENDING_TICKS_KEY = "cdfPendingTicks";
+function writeAreasForLibrary(){
+  if(isSharedMode) return;
+  try{
+    const areas = getSections().map(function(sec){
+      const lbl = sectionLabel(sec);
+      return {
+        id: sec.id, name: lbl.name, emoji: lbl.emoji || "", color: getSectionColor(sec),
+        activities: orderedActivities(sec, false).map(function(a){ return { id: a.id, name: actLabel(a.id) }; })
+      };
+    });
+    const txt = JSON.stringify(areas);
+    if(localStorage.getItem(AREAS_KEY) !== txt) localStorage.setItem(AREAS_KEY, txt);
+  }catch(e){}
+}
+function applyPendingTicks(){
+  if(isSharedMode) return false;
+  let list = [];
+  try{ list = JSON.parse(localStorage.getItem(PENDING_TICKS_KEY) || "[]"); }catch(e){}
+  try{ localStorage.removeItem(PENDING_TICKS_KEY); }catch(e){}
+  if(!Array.isArray(list)) return false;
+  const todayKey = fmtKey(new Date());
+  let changed = false;
+  list.forEach(function(t){
+    const m = t && typeof t.act === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.date || "");
+    if(!m) return;
+    const d = new Date(+m[1], +m[2]-1, +m[3], 12);
+    const k = fmtKey(d);
+    if(k < RESET_DATE || k > todayKey) return;
+    const key = fmtKey(getMonday(d)), day = todayIndex(d);
+    if(!getCell(key, t.act, day)){ setCell(key, t.act, day, true); changed = true; }
+  });
+  return changed;
+}
+// Tornando indietro dalla Libreria, Safari può rimettere la pagina com'era senza
+// rieseguire l'avvio: le spunte in attesa si applicano anche qui.
+window.addEventListener("pageshow", function(e){
+  if(e.persisted && applyPendingTicks()) render();
+});
 
 /* ===================== Eventi ===================== */
 document.getElementById("weekView").addEventListener("click", function(e){
@@ -2272,6 +2321,7 @@ if(isSharedMode && sharePantryId){
   pantryId = cleanPantryId(sharePantryId);
   initialLoading = true;
 }
+applyPendingTicks();
 setTabs();
 render();
 if(pantryId) reconcile();

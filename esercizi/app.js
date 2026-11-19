@@ -49,7 +49,31 @@ const COLORS = {
 };
 const COLOR_KEYS = Object.keys(COLORS);
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Data locale (non UTC): fra mezzanotte e l'una toISOString() dava ancora ieri.
+const todayISO = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+
+/* Spunta del giorno (19/11/2026). Un esercizio e' «fatto oggi» se lastDone e' oggi.
+   Spuntare conserva in prevDone la data di prima, cosi' togliere la spunta la
+   rimette com'era. updatedAt dice quale copia e' piu' recente nella sync. */
+const doneToday = (e) => !!e && e.lastDone === todayISO();
+const tickExercise = (e) => doneToday(e) ? e : {
+  ...e, count: (e.count || 0) + 1, prevDone: e.lastDone || null, lastDone: todayISO(), updatedAt: Date.now(),
+};
+const untickExercise = (e) => !doneToday(e) ? e : {
+  ...e, count: Math.max(0, (e.count || 0) - 1), lastDone: e.prevDone || null, prevDone: null, updatedAt: Date.now(),
+};
+/* Fra due copie dello stesso esercizio vince quella modificata per ultima; per
+   quelle salvate prima di updatedAt resta la regola di prima (piu' volte fatto,
+   poi data piu' recente). A parita' resta `mine`. */
+function newerExercise(mine, other) {
+  const um = mine.updatedAt || 0, uo = other.updatedAt || 0;
+  if (um || uo) return uo > um ? other : mine;
+  return ((other.count || 0) > (mine.count || 0) ||
+    ((other.count || 0) === (mine.count || 0) && (other.lastDone || '') > (mine.lastDone || ''))) ? other : mine;
+}
 const daysSince = (iso) => {
   if (!iso) return null;
   const ms = Date.now() - new Date(iso + 'T00:00:00').getTime();
@@ -228,11 +252,16 @@ function mergeStores(a, b) {
   const delEx  = mergeTomb(a._deletedEx, b._deletedEx);
   const out = { _deleted: delAct, _deletedEx: delEx };
 
+  // Una scheda eliminata resta eliminata, a meno che non sia stata riscritta
+  // dopo (updatedAt piu' recente della lapide): ora tutte le attivita' sono in
+  // elenco e una scheda tolta si puo' ricominciare.
+  const alive = (k, x) => x && !(delAct[k] && !((x.updatedAt || 0) > delAct[k]));
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   keys.forEach(k => {
-    if (isMeta(k) || delAct[k]) return;
-    const ea = stripDeletedEx(a[k], delEx);
-    const eb = stripDeletedEx(b[k], delEx);
+    if (isMeta(k)) return;
+    const ea = alive(k, a[k]) ? stripDeletedEx(a[k], delEx) : null;
+    const eb = alive(k, b[k]) ? stripDeletedEx(b[k], delEx) : null;
+    if (!ea && !eb) return;
     if (!ea) { out[k] = eb; return; }
     if (!eb) { out[k] = ea; return; }
 
@@ -241,16 +270,14 @@ function mergeStores(a, b) {
     (eb.exercises || []).forEach(e => {
       if (delEx[e.id]) return;
       const prev = byId[e.id];
-      if (!prev) { byId[e.id] = e; return; }
-      const winE = ((e.count || 0) > (prev.count || 0) ||
-        ((e.count || 0) === (prev.count || 0) && (e.lastDone || '') > (prev.lastDone || ''))) ? e : prev;
-      byId[e.id] = winE;
+      byId[e.id] = prev ? newerExercise(prev, e) : e;
     });
 
     out[k] = {
       name: eb.name || ea.name,
       color: eb.color || ea.color,
       exercises: Object.values(byId),
+      updatedAt: Math.max(ea.updatedAt || 0, eb.updatedAt || 0) || undefined,
     };
   });
   return out;
@@ -466,7 +493,7 @@ function App() {
 
   const updateActivity = (updated) => {
     const ns = { ...store };
-    ns[updated.id] = { name: updated.name, color: updated.color, exercises: updated.exercises };
+    ns[updated.id] = { name: updated.name, color: updated.color, exercises: updated.exercises, updatedAt: Date.now() };
     setDraftSeed(null); // ora è memorizzata nello store
     persist(ns);
   };
@@ -499,11 +526,9 @@ function App() {
     (tgt.exercises || []).forEach(e => { byId[e.id] = e; });
     (src.exercises || []).forEach(e => {
       const p = byId[e.id];
-      if (!p) { byId[e.id] = e; return; }
-      byId[e.id] = ((e.count || 0) > (p.count || 0) ||
-        ((e.count || 0) === (p.count || 0) && (e.lastDone || '') > (p.lastDone || ''))) ? e : p;
+      byId[e.id] = p ? newerExercise(p, e) : e;
     });
-    ns[targetId] = { name: tgt.name || src.name, color: tgt.color || src.color, exercises: Object.values(byId) };
+    ns[targetId] = { name: tgt.name || src.name, color: tgt.color || src.color, exercises: Object.values(byId), updatedAt: Date.now() };
     delete ns[sourceId];
     ns._deleted = { ...(ns._deleted || {}), [sourceId]: Date.now() };
     persist(ns);
@@ -523,17 +548,17 @@ function App() {
           onBack: goHome,
           onChange: updateActivity,
           onRemoveExercise: removeExercise,
+          onRemoveActivity: (id) => { removeActivity(id); goHome(); },
+          onMerge: (src, tgt) => { mergeActivity(src, tgt); setOpenId(tgt); },
+          otherActivities: Object.keys(store)
+            .filter(k => !isMeta(k) && k !== open.id && store[k])
+            .map(k => ({ id: k, name: store[k].name || k })),
           isDark, toggleTheme,
         })
       : h(Home, {
           store, synced,
-          onOpen: setOpenId,
-          onRemove: removeActivity,
-          onMerge: mergeActivity,
-          onAddBoard: (act) => {
-            updateActivity({ id: act.id, name: act.name, color: act.color, exercises: [] });
-            setOpenId(act.id);
-          },
+          // Un'attivita' senza esercizi si apre come bozza: entra nello store al primo esercizio.
+          onOpen: (act) => { setDraftSeed(store[act.id] ? null : act); setOpenId(act.id); },
           searchQuery, setSearchQuery,
           isDark, toggleTheme,
         }),
@@ -542,49 +567,76 @@ function App() {
 }
 
 /* ============================================================
-   HOME — Elenco attività della libreria
+   AREE E SPUNTE VERSO L'APP (19/11/2026)
    ============================================================ */
-function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuery, setSearchQuery, isDark, toggleTheme }) {
-  const [confirm, setConfirm] = useState(null);
-  const [movingId, setMovingId] = useState(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+/* Aree e attivita' come le mostra l'app (le scrive app.js in cdfAreas_v1:
+   nomi, colori, ordine, senza nascoste ed eliminate). Se la Libreria si apre
+   prima dell'app su un dispositivo nuovo, un solo gruppo con le attivita' note. */
+function getAreas() {
+  try {
+    const a = JSON.parse(localStorage.getItem('cdfAreas_v1') || 'null');
+    if (Array.isArray(a) && a.length) return a;
+  } catch {}
+  return [{ id: '_tutte', name: 'Attività', emoji: '', color: 'verde',
+    activities: getCdfActivities().map(x => ({ id: x.id, name: x.name })) }];
+}
 
-  // Lista attività che hanno almeno 1 esercizio
-  const activeActivities = useMemo(() => {
-    return Object.keys(store)
-      .filter(k => !isMeta(k))
-      .map(id => ({ id, ...store[id] }))
-      .filter(a => Array.isArray(a.exercises) && a.exercises.length > 0)
-      .sort((a, b) => {
-        const ci = COLOR_KEYS.indexOf(a.color) - COLOR_KEYS.indexOf(b.color);
-        return ci !== 0 ? ci : (a.name || '').localeCompare(b.name || '');
-      });
-  }, [store]);
+/* Finiti tutti gli esercizi di un'attivita', la Libreria lascia una «spunta in
+   attesa» che l'app applica alla prossima apertura (vedi applyPendingTicks in
+   ../app.js). Le schede nate solo qui (cust_ex_) non hanno un'attivita' nell'app. */
+function addPendingTick(actId) {
+  if (!actId || actId.startsWith('cust_ex_')) return false;
+  try {
+    const date = todayISO();
+    let list = JSON.parse(localStorage.getItem('cdfPendingTicks') || '[]');
+    if (!Array.isArray(list)) list = [];
+    if (!list.some(t => t && t.act === actId && t.date === date)) list.push({ act: actId, date });
+    localStorage.setItem('cdfPendingTicks', JSON.stringify(list));
+    return true;
+  } catch { return false; }
+}
 
-  const totalExercises = activeActivities.reduce((s, a) => s + (a.exercises ? a.exercises.length : 0), 0);
-  const totalDone = activeActivities.reduce((s, a) => s + (a.exercises || []).reduce((ss, e) => ss + (e.count || 0), 0), 0);
+const DATA_LUNGA = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+const chevron = 'M9 18l6-6-6-6';
 
-  // Filtro di ricerca
-  const filteredActivities = useMemo(() => {
-    const q = (searchQuery || '').trim().toLowerCase();
-    if (!q) return activeActivities;
-    return activeActivities.filter(a => {
-      if ((a.name || '').toLowerCase().includes(q)) return true;
-      return (a.exercises || []).some(e => (e.name || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q));
-    });
-  }, [activeActivities, searchQuery]);
+/* ============================================================
+   HOME — Tutte le attivita', divise per area
+   ============================================================ */
+function Home({ store, synced, onOpen, searchQuery, setSearchQuery, isDark, toggleTheme }) {
+  const areas = useMemo(getAreas, []);
+  const q = searchQuery.trim().toLowerCase();
 
-  const doRemove = () => {
-    onRemove(confirm.id);
-    setConfirm(null);
-    showToast('Scheda attività rimossa');
-  };
+  const allEx = Object.keys(store).filter(k => !isMeta(k)).flatMap(k => (store[k] && store[k].exercises) || []);
+  const doneN = allEx.filter(doneToday).length;
+  const staleN = allEx.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
+
+  const listed = new Set();
+  const groups = areas.map(area => ({
+    area,
+    rows: (area.activities || []).map(a => {
+      listed.add(a.id);
+      return { id: a.id, name: a.name, color: area.color, exs: (store[a.id] && store[a.id].exercises) || [] };
+    }),
+  }));
+  // Schede della Libreria che non sono (piu') attivita' dell'app: restano visibili.
+  const extra = Object.keys(store)
+    .filter(k => !isMeta(k) && !listed.has(k) && store[k])
+    .map(k => ({ id: k, name: store[k].name || k, color: store[k].color || 'verde', exs: store[k].exercises || [] }));
+  if (extra.length) groups.push({ area: { id: '_altre', name: 'Altre schede', emoji: '', color: 'verde' }, rows: extra });
+
+  const match = r => !q || r.name.toLowerCase().includes(q) ||
+    r.exs.some(e => (e.name || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q));
+  const shown = groups.map(g => ({ ...g, rows: g.rows.filter(match) })).filter(g => g.rows.length);
+
+  const tile = (n, label) => h('div', { className: 'lib-tile' }, h('b', null, n), h('span', null, label));
 
   return h('div', { className: 'page' },
     h('header', { className: 'header' },
-      // Il ritorno all'app sta nella barra in basso (Oggi): titolo e tema su una riga.
-      h('div', { className: 'header-title-row', style: { justifyContent: 'space-between' } },
-        h('h1', null, '📚 Libreria Esercizi'),
+      h('div', { className: 'header-title-row', style: { justifyContent: 'space-between', alignItems: 'flex-start' } },
+        h('div', null,
+          h('p', { className: 'lib-date' }, DATA_LUNGA.format(new Date())),
+          h('h1', { className: 'lib-title' }, 'Esercizi')
+        ),
         h('div', { className: 'header-actions' },
           h('button', { className: 'theme-toggle-btn', onClick: toggleTheme, title: isDark ? 'Passa a tema chiaro' : 'Passa a tema scuro' },
             isDark ? '☀️' : '🌙'
@@ -595,10 +647,10 @@ function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuer
           )
         )
       ),
-      h('div', { className: 'header-stats-chips' },
-        h('span', { className: 'stat-chip' }, `${activeActivities.length} attività`),
-        h('span', { className: 'stat-chip' }, `${totalExercises} esercizi`),
-        h('span', { className: 'stat-chip' }, `${totalDone} esecuzioni`)
+      h('div', { className: 'lib-tiles' },
+        tile(doneN, 'fatti oggi'),
+        tile(staleN, 'da ripassare'),
+        tile(allEx.length, 'esercizi in tutto')
       )
     ),
 
@@ -612,276 +664,141 @@ function Home({ store, synced, onOpen, onRemove, onMerge, onAddBoard, searchQuer
           onInput: e => setSearchQuery(e.target.value),
         }),
         searchQuery && h('button', { className: 'search-clear', onClick: () => setSearchQuery('') }, '✕')
-      ),
-      h('div', { className: 'action-bar' },
-        h('button', { className: 'btn-primary-action', onClick: () => setShowAddModal(true) },
-          h(Icon, { d: icons.plus, size: 15, color: '#fff' }),
-          'Nuova scheda per un’attività'
-        )
       )
     ),
 
     h('div', { className: 'content' },
-      filteredActivities.length === 0 && h('div', { className: 'empty-box' },
-        h('div', { className: 'empty-box-icon' }, '🏋️'),
-        h('p', null,
-          searchQuery
-            ? 'Nessun esercizio trovato con questa ricerca.'
-            : 'Nessuna scheda con esercizi attivi ancora.',
-          h('br'),
-          h('span', { style: { fontSize: '13px' } }, 'Tocca "Nuova scheda per un’attività" per iniziare ad aggiungere esercizi.')
-        )
+      shown.length === 0 && h('div', { className: 'empty-box' },
+        h('div', { className: 'empty-box-icon' }, '🔎'),
+        h('p', null, 'Nessuna attività o esercizio con questa ricerca.')
       ),
-
-      filteredActivities.map(a => {
-        const c = COLORS[a.color] || COLORS.verde;
-        const exs = a.exercises || [];
-        const done = exs.reduce((s, e) => s + (e.count || 0), 0);
-        const stale = exs.filter(e => { const d = daysSince(e.lastDone); return d === null || d > 7; }).length;
-        const totalAvgTime = exs.reduce((s, e) => { const avg = avgTime(e); return s + (avg || 0); }, 0);
-        const isMoving = movingId === a.id;
-        const otherActivities = activeActivities.filter(x => x.id !== a.id);
-
-        return h('div', {
-          key: a.id,
-          className: 'activity-card',
-          style: { '--card-accent': c.dot },
-        },
-          h('div', { className: 'activity-card-row' },
-            h('button', {
-              id: `activity-${a.id}`,
-              className: 'activity-btn',
-              onClick: () => { if (!isMoving) onOpen(a.id); },
-            },
-              h('span', { className: 'dot', style: { background: c.dot } }),
-              h('div', { className: 'activity-info' },
-                h('div', { className: 'activity-name' }, a.name),
-                h('div', { className: 'activity-chips' },
-                  h('span', { className: 'stat-pill' }, `${exs.length} esercizi`),
-                  h('span', { className: 'stat-pill' }, `${done}× fatti`),
-                  totalAvgTime > 0 && h('span', { className: 'stat-pill' }, `⏱ ~${totalAvgTime}m`),
-                  stale > 0 && h('span', { className: 'stat-pill stale' }, `${stale} da ripassare`),
-                )
-              ),
-              h(Icon, { d: icons.arrow, size: 16, style: { marginLeft: 'auto', color: 'var(--text-muted)' } })
-            ),
-            h('div', { className: 'activity-actions' },
-              h('button', {
-                className: 'icon-btn',
-                title: isMoving ? 'Annulla spostamento' : 'Sposta esercizi in un\'altra scheda',
-                onClick: () => setMovingId(isMoving ? null : a.id),
-              }, isMoving ? '✕' : h(Icon, { d: 'M5 12h14M13 6l6 6-6 6', size: 15 })),
-              h('button', {
-                className: 'icon-btn danger',
-                title: 'Rimuovi scheda e i suoi esercizi',
-                onClick: () => setConfirm({ id: a.id, name: a.name }),
-              }, h(Icon, { d: icons.trash, size: 15 }))
-            )
-          ),
-          isMoving && h('div', { style: { marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' } },
-            h('p', { style: { fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: 6 } },
-              `Sposta gli esercizi di "${a.name}" in:`
-            ),
-            otherActivities.length === 0
-              ? h('p', { style: { fontSize: '12px', color: 'var(--text-muted)' } }, 'Nessun\'altra scheda disponibile.')
-              : otherActivities.map(t =>
-                  h('button', {
-                    key: t.id,
-                    className: 'btn-ghost',
-                    style: { display: 'block', width: '100%', textAlign: 'left', marginBottom: 4 },
-                    onClick: () => {
-                      onMerge(a.id, t.id);
-                      setMovingId(null);
-                      showToast(`Esercizi spostati in "${t.name}" ✓`);
-                    },
-                  }, t.name)
-                )
+      shown.map(g => {
+        const ca = COLORS[g.area.color] || COLORS.verde;
+        return h('section', { key: g.area.id, className: 'lib-area' },
+          h('h2', { className: 'lib-area-title', style: { color: ca.dot } },
+            (g.area.emoji ? g.area.emoji + ' ' : '') + g.area.name),
+          h('div', { className: 'lib-group' },
+            g.rows.map(r => {
+              const c = COLORS[r.color] || ca;
+              const n = r.exs.length;
+              const dn = r.exs.filter(doneToday).length;
+              return h('button', {
+                key: r.id,
+                id: `activity-${r.id}`,
+                className: 'lib-row',
+                onClick: () => onOpen({ id: r.id, name: r.name, color: r.color }),
+              },
+                h('span', {
+                  className: 'lib-row-dot' + (n > 0 && dn === n ? ' tutto' : ''),
+                  style: { '--acc': c.dot },
+                  'aria-hidden': 'true',
+                }, n > 0 && dn === n ? h(Icon, { d: icons.check, size: 12, color: '#fff', strokeWidth: 3 }) : null),
+                h('span', { className: 'lib-row-name' }, r.name),
+                n === 0
+                  ? h('span', { className: 'lib-row-add' }, '+ aggiungi')
+                  : h('span', { className: 'lib-row-count' }, `${dn}/${n}`),
+                h(Icon, { d: chevron, size: 16, style: { color: 'var(--text-muted)', flexShrink: 0 } })
+              );
+            })
           )
         );
       })
-    ),
-
-    /* Modal Nuova Scheda */
-    showAddModal && h(NewBoardModal, {
-      onClose: () => setShowAddModal(false),
-      onCreate: (act) => {
-        setShowAddModal(false);
-        onAddBoard(act);
-      },
-    }),
-
-    confirm && h(ConfirmDialog, {
-      title: 'Rimuovi scheda',
-      msg: `Vuoi rimuovere la scheda "${confirm.name}" e tutti i suoi esercizi dalla libreria?`,
-      onConfirm: doRemove,
-      onCancel: () => setConfirm(null),
-    })
-  );
-}
-
-/* ============================================================
-   MODAL: NUOVA SCHEDA PER ATTIVITÀ
-   ============================================================ */
-function NewBoardModal({ onClose, onCreate }) {
-  const cdfList = useMemo(() => getCdfActivities(), []);
-  const [selectedId, setSelectedId] = useState(cdfList[0]?.id || 'custom');
-  const [customName, setCustomName] = useState('');
-  const [selectedColor, setSelectedColor] = useState('verde');
-
-  const handleSelect = (e) => {
-    const id = e.target.value;
-    setSelectedId(id);
-    const found = cdfList.find(x => x.id === id);
-    if (found) {
-      setSelectedColor(found.color || 'verde');
-    }
-  };
-
-  const handleCreate = () => {
-    if (selectedId === 'custom') {
-      if (!customName.trim()) return;
-      onCreate({
-        id: 'cust_ex_' + uid(),
-        name: customName.trim(),
-        color: selectedColor,
-      });
-    } else {
-      const found = cdfList.find(x => x.id === selectedId);
-      if (!found) return;
-      onCreate({
-        id: found.id,
-        name: found.name,
-        color: found.color || selectedColor,
-      });
-    }
-  };
-
-  return h('div', { className: 'modal-backdrop', onClick: onClose },
-    h('div', { className: 'modal-card', onClick: e => e.stopPropagation() },
-      h('h3', { className: 'modal-title' }, 'Nuova Scheda Esercizi'),
-      h('p', { className: 'modal-sub' }, 'Seleziona un’attività dal tuo CDF Tracker o inseriscine una personalizzata:'),
-
-      h('div', { style: { marginBottom: 12 } },
-        h('label', { className: 'form-label' }, 'Attività di riferimento'),
-        h('select', { className: 'form-input', value: selectedId, onChange: handleSelect },
-          cdfList.map(a => h('option', { key: a.id, value: a.id }, `${a.name} (${COLORS[a.color]?.name || a.color})`)),
-          h('option', { value: 'custom' }, '➕ Altra attività personalizzata…')
-        )
-      ),
-
-      selectedId === 'custom' && h('div', { style: { marginBottom: 12 } },
-        h('label', { className: 'form-label' }, 'Nome nuova attività'),
-        h('input', {
-          type: 'text',
-          className: 'form-input',
-          placeholder: 'Es. Esercizi Respirazione, Postura…',
-          value: customName,
-          onInput: e => setCustomName(e.target.value),
-        })
-      ),
-
-      h('div', { style: { marginBottom: 16 } },
-        h('label', { className: 'form-label' }, 'Categoria / Colore'),
-        h('div', { style: { display: 'flex', gap: 8, marginTop: 4 } },
-          COLOR_KEYS.map(k => h('button', {
-            key: k,
-            type: 'button',
-            onClick: () => setSelectedColor(k),
-            style: {
-              width: 28, height: 28, borderRadius: '50%',
-              background: COLORS[k].dot,
-              border: selectedColor === k ? '3px solid #fff' : '2px solid transparent',
-              boxShadow: selectedColor === k ? '0 0 0 2px ' + COLORS[k].dot : 'none',
-              cursor: 'pointer',
-            },
-            title: COLORS[k].name,
-          }))
-        )
-      ),
-
-      h('div', { className: 'form-actions' },
-        h('button', { className: 'btn-ghost', onClick: onClose }, 'Annulla'),
-        h('button', { className: 'btn-submit', onClick: handleCreate }, 'Crea ed entra')
-      )
     )
   );
 }
 
 /* ============================================================
-   BOARD — Bacheca esercizi di una attività
+   BOARD — Esercizi di un'attivita'
    ============================================================ */
-function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExercise, isDark, toggleTheme }) {
+function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExercise, onRemoveActivity, onMerge, otherActivities, isDark, toggleTheme }) {
   const c = COLORS[activity.color] || COLORS.verde;
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [openRowId, setOpenRowId] = useState(null);
   const [confirm, setConfirm] = useState(null);
+  const [moving, setMoving] = useState(false);
+  const [training, setTraining] = useState(false);
 
+  const exs = activity.exercises || [];
   const update = (exercises) => onChange({ ...activity, exercises });
 
   const staleKey = (e) => (daysSince(e.lastDone) ?? 1e9);
   const prioKey  = (e) => (typeof e.priority === 'number' ? e.priority : -Infinity);
 
-  const sorted = [...(activity.exercises || [])];
+  const sorted = [...exs];
   if (sortMode === 'most')          sorted.sort((a, b) => (b.count || 0) - (a.count || 0));
   else if (sortMode === 'stale')    sorted.sort((a, b) => staleKey(b) - staleKey(a));
   else if (sortMode === 'priority') sorted.sort((a, b) => (prioKey(b) - prioKey(a)) || (staleKey(b) - staleKey(a)));
   else if (sortMode === 'name')     sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-  const markDone = (id) => {
-    update((activity.exercises || []).map(e =>
-      e.id === id ? { ...e, count: (e.count || 0) + 1, lastDone: todayISO() } : e
-    ));
-    showToast('Esercizio completato ✓');
+  /* Applica una spunta (o la toglie). Se con questa sono fatti tutti, l'attivita'
+     si segna anche in Oggi nell'app. */
+  const applyChange = (id, fn) => {
+    const next = exs.map(e => e.id === id ? fn(e) : e);
+    update(next);
+    const wasAll = exs.length > 0 && exs.every(doneToday);
+    const nowAll = next.length > 0 && next.every(doneToday);
+    if (nowAll && !wasAll) {
+      showToast(addPendingTick(activity.id)
+        ? `${activity.name} completata: segnata anche in Oggi ✓`
+        : 'Tutti gli esercizi fatti oggi ✓');
+    }
   };
+  const toggleDone = (id) => applyChange(id, e => doneToday(e) ? untickExercise(e) : tickExercise(e));
+  const markDone = (id) => applyChange(id, tickExercise);
 
   const saveTimeForActivity = (minutes) => {
     const today = todayISO();
-    update((activity.exercises || []).map(e => {
+    update(exs.map(e => {
       const log = e.timeLog || [];
       const today_entry = log.find(entry => entry.date === today);
       const updated_log = today_entry
         ? log.map(entry => entry.date === today ? { ...entry, minutes: entry.minutes + minutes } : entry)
         : [...log, { date: today, minutes }];
-      return { ...e, timeLog: updated_log };
+      return { ...e, timeLog: updated_log, updatedAt: Date.now() };
     }));
     showToast(`⏱ +${minutes} min registrati`);
   };
 
-  const undo = (id) => {
-    update((activity.exercises || []).map(e =>
-      e.id === id ? { ...e, count: Math.max(0, (e.count || 0) - 1) } : e
-    ));
-  };
-
-  const remove = (id, name) => setConfirm({ id, name });
-  const doRemove = () => {
-    onRemoveExercise(activity.id, confirm.id);
+  const doConfirm = () => {
+    if (confirm.kind === 'activity') {
+      onRemoveActivity(activity.id);
+      showToast('Scheda rimossa');
+    } else {
+      onRemoveExercise(activity.id, confirm.id);
+      showToast('Esercizio eliminato');
+    }
     setConfirm(null);
-    showToast('Esercizio eliminato');
   };
 
   const saveExercise = (ex) => {
-    const list = activity.exercises || [];
-    const exists = list.some(e => e.id === ex.id);
-    update(exists
-      ? list.map(e => e.id === ex.id ? ex : e)
-      : [...list, ex]
-    );
+    const prev = exs.find(e => e.id === ex.id);
+    const saved = { ...(prev || {}), ...ex, updatedAt: Date.now() };
+    update(prev ? exs.map(e => e.id === ex.id ? saved : e) : [...exs, saved]);
     setAdding(false);
     setEditId(null);
-    showToast(exists ? 'Esercizio aggiornato ✓' : 'Esercizio aggiunto ✓');
+    showToast(prev ? 'Esercizio aggiornato ✓' : 'Esercizio aggiunto ✓');
   };
 
-  const doneCount = (activity.exercises || []).reduce((s, e) => s + (e.count || 0), 0);
+  if (training) {
+    return h(Allenamento, {
+      activity,
+      exercises: sorted,
+      accent: c,
+      onDone: markDone,
+      onExit: () => setTraining(false),
+    });
+  }
+
+  const doneN = exs.filter(doneToday).length;
+  const pct = exs.length ? Math.round(doneN / exs.length * 100) : 0;
 
   return h('div', { className: 'page' },
     h('header', { className: 'header' },
       h('div', { className: 'header-top-nav' },
-        h('div', { className: 'header-nav-group' },
-          h('button', { className: 'nav-btn library-btn', onClick: onBack, title: 'Torna all\'elenco di tutte le schede' },
-            h(Icon, { d: icons.book, size: 15 }),
-            h('span', null, '📚 Tutte le schede')
-          )
+        h('button', { className: 'nav-btn library-btn', onClick: onBack, title: 'Torna a tutte le attività' },
+          h(Icon, { d: icons.back, size: 15 }),
+          h('span', null, 'Esercizi')
         ),
         h('div', { className: 'header-actions' },
           h('button', { className: 'theme-toggle-btn', onClick: toggleTheme, title: isDark ? 'Passa a tema chiaro' : 'Passa a tema scuro' },
@@ -889,21 +806,25 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
           )
         )
       ),
-
-      h('div', { className: 'header-title-row' },
-        h('span', { className: 'dot', style: { background: c.dot, width: 14, height: 14 } }),
-        h('h1', null, activity.name)
-      ),
+      h('h1', { className: 'lib-title', style: { color: c.dot } }, activity.name),
       h('p', { className: 'header-sub' },
-        `${(activity.exercises || []).length} esercizi · ${doneCount} esecuzioni totali`
+        exs.length ? `${doneN} di ${exs.length} fatti oggi` : 'Nessun esercizio ancora'),
+      exs.length > 0 && h('div', { className: 'lib-progress', role: 'progressbar', 'aria-valuenow': pct, 'aria-valuemin': 0, 'aria-valuemax': 100 },
+        h('i', { style: { width: pct + '%', background: c.dot } })
+      ),
+      exs.length > 0 && h('button', {
+        className: 'start-btn',
+        style: { background: c.dot },
+        onClick: () => setTraining(true),
+      },
+        h(Icon, { d: icons.play, size: 15, color: '#fff' }),
+        doneN === exs.length ? 'Rifai l’allenamento' : 'Inizia allenamento'
       )
     ),
 
-    /* Timer compatto */
     h(Timer, { accent: c.dot, key: activity.id, onSaveTime: saveTimeForActivity }),
 
-    /* Sort Bar */
-    h('div', { className: 'sort-bar' },
+    exs.length > 1 && h('div', { className: 'sort-bar' },
       h(Icon, { d: icons.sort, size: 14, style: { color: 'var(--text-muted)', flexShrink: 0, marginRight: 2 } }),
       [
         ['stale', '⚡ Da ripassare'],
@@ -920,26 +841,27 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
       )
     ),
 
-    /* Elenco Esercizi */
     h('div', { className: 'content' },
-      (activity.exercises || []).length === 0 && !adding && h('div', { className: 'empty-box' },
+      exs.length === 0 && !adding && h('div', { className: 'empty-box' },
         h('div', { className: 'empty-box-icon' }, '🎯'),
         h('p', null, 'Nessun esercizio ancora.', h('br'), 'Aggiungine uno con il pulsante qui sotto.')
       ),
 
-      sorted.map(e =>
-        h(ExerciseRow, {
-          key: e.id,
-          ex: e,
-          accent: c,
-          onDone: () => markDone(e.id),
-          onUndo: () => undo(e.id),
-          onEdit: () => { setEditId(e.id); setAdding(false); },
-          onRemove: () => remove(e.id, e.name),
-          isEditing: editId === e.id,
-          onSave: saveExercise,
-          onCancelEdit: () => setEditId(null),
-        })
+      sorted.length > 0 && h('div', { className: 'lib-group' },
+        sorted.map(e =>
+          editId === e.id
+            ? h(ExerciseForm, { key: e.id, accent: c, initial: e, onSave: saveExercise, onCancel: () => setEditId(null) })
+            : h(ExerciseRow, {
+                key: e.id,
+                ex: e,
+                accent: c,
+                open: openRowId === e.id,
+                onToggleOpen: () => setOpenRowId(openRowId === e.id ? null : e.id),
+                onToggleDone: () => toggleDone(e.id),
+                onEdit: () => { setEditId(e.id); setAdding(false); },
+                onRemove: () => setConfirm({ kind: 'exercise', id: e.id, name: e.name }),
+              })
+        )
       ),
 
       (adding && !editId) && h(ExerciseForm, {
@@ -956,110 +878,166 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
       },
         h(Icon, { d: icons.plus, size: 16 }),
         'Nuovo esercizio'
+      ),
+
+      exs.length > 0 && h('div', { className: 'lib-manage' },
+        otherActivities.length > 0 && h('button', { className: 'btn-ghost', onClick: () => setMoving(m => !m) },
+          moving ? 'Annulla spostamento' : 'Sposta gli esercizi in un’altra scheda'),
+        h('button', { className: 'btn-ghost danger', onClick: () => setConfirm({ kind: 'activity', name: activity.name }) },
+          'Elimina la scheda'),
+        moving && h('div', { className: 'lib-move-list' },
+          h('p', null, `Sposta gli esercizi di "${activity.name}" in:`),
+          otherActivities.map(t => h('button', {
+            key: t.id,
+            className: 'btn-ghost',
+            onClick: () => {
+              onMerge(activity.id, t.id);
+              setMoving(false);
+              showToast(`Esercizi spostati in "${t.name}" ✓`);
+            },
+          }, t.name))
+        )
       )
     ),
 
     confirm && h(ConfirmDialog, {
-      title: 'Elimina esercizio',
-      msg: `Vuoi eliminare "${confirm.name}"?`,
-      onConfirm: doRemove,
+      title: confirm.kind === 'activity' ? 'Elimina scheda' : 'Elimina esercizio',
+      msg: confirm.kind === 'activity'
+        ? `Vuoi eliminare la scheda "${confirm.name}" e tutti i suoi esercizi?`
+        : `Vuoi eliminare "${confirm.name}"?`,
+      onConfirm: doConfirm,
       onCancel: () => setConfirm(null),
     })
   );
 }
 
 /* ============================================================
-   EXERCISE ROW
+   EXERCISE ROW — cerchio da spuntare, dettagli a richiesta
    ============================================================ */
-function ExerciseRow({ ex, accent, onDone, onUndo, onEdit, onRemove, isEditing, onSave, onCancelEdit }) {
-  const [showVideo, setShowVideo] = useState(false);
+function ExerciseRow({ ex, accent, open, onToggleOpen, onToggleDone, onEdit, onRemove }) {
+  const done = doneToday(ex);
   const f = freshness(ex.lastDone);
   const embed = driveEmbed(ex.videoUrl);
+  const when = done ? 'fatto oggi' : f.label;
 
-  if (isEditing) {
-    return h(ExerciseForm, {
-      accent,
-      initial: ex,
-      onSave,
-      onCancel: onCancelEdit,
-    });
-  }
-
-  return h('div', { className: 'exercise-row' },
-    h('div', { className: 'exercise-row-main' },
-      /* Freshness indicator */
-      h('div', {
-        className: 'freshness-indicator',
-        style: {
-          background: f.c,
-          boxShadow: `0 0 0 3px ${f.bg}`,
-        },
-        title: f.label,
-      }),
-
-      h('div', { className: 'exercise-info' },
-        h('button', {
-          className: 'exercise-name-btn',
-          title: 'Tocca per modificare',
-          onClick: onEdit,
-        }, ex.name),
-        ex.notes && h('div', { className: 'exercise-notes' }, ex.notes),
-        h('div', { className: 'exercise-meta-row' },
-          h('span', { className: 'ex-tag' }, `${ex.count || 0}× fatto`),
-          avgTime(ex) && h('span', { className: 'ex-tag' }, `⏱ ~${avgTime(ex)}m`),
-          (typeof ex.priority === 'number') && h('span', {
-            className: 'ex-tag',
-            style: { background: accent.soft, color: accent.dot },
-          }, `priorità ${ex.priority}`),
-          h('span', {
-            className: 'ex-tag freshness',
-            style: { background: f.bg, color: f.c },
-          }, f.label),
+  return h('div', { className: 'ex-row' + (done ? ' done' : '') },
+    h('div', { className: 'ex-row-main' },
+      h('button', {
+        className: 'ex-check' + (done ? ' on' : ''),
+        style: { '--acc': accent.dot },
+        onClick: onToggleDone,
+        'aria-pressed': done ? 'true' : 'false',
+        'aria-label': done ? `Togli la spunta a ${ex.name}` : `Segna ${ex.name} come fatto oggi`,
+      }, done ? h(Icon, { d: icons.check, size: 14, color: '#fff', strokeWidth: 3 }) : null),
+      h('button', { className: 'ex-row-info', onClick: onToggleOpen, 'aria-expanded': open ? 'true' : 'false' },
+        h('span', { className: 'ex-row-name' }, ex.name),
+        h('span', { className: 'ex-row-meta' },
+          h('span', { style: { color: done ? f.c : (daysSince(ex.lastDone) > 7 ? 'var(--fresh-red)' : undefined) } }, when),
+          ` · ${ex.count || 0}× fatto`,
+          (typeof ex.priority === 'number') ? ` · priorità ${ex.priority}` : '',
+          avgTime(ex) ? ` · ~${avgTime(ex)} min` : ''
         )
       ),
-
-      h('div', { className: 'exercise-actions' },
-        h('button', {
-          className: 'done-btn',
-          style: { background: accent.dot },
-          onClick: onDone,
-          title: 'Segna come fatto',
-        },
-          h(Icon, { d: icons.check, size: 14, color: '#fff' }),
-          'Fatto'
-        ),
-        h('div', { className: 'mini-actions' },
-          ex.videoUrl && h('button', {
-            className: 'mini-btn video-btn',
-            title: showVideo ? 'Nascondi video' : 'Mostra video',
-            onClick: () => setShowVideo(v => !v),
-          }, h(Icon, { d: icons.video, size: 14 })),
-          h('button', { className: 'mini-btn', title: 'Annulla esecuzione (-1)', onClick: onUndo },
-            h(Icon, { d: icons.minus, size: 14 })
-          ),
-          h('button', { className: 'mini-btn', title: 'Modifica esercizio', onClick: onEdit },
-            h(Icon, { d: icons.pencil, size: 14 })
-          ),
-          h('button', { className: 'mini-btn danger', title: 'Elimina esercizio', onClick: onRemove },
-            h(Icon, { d: icons.trash, size: 14 })
-          )
-        )
-      )
+      ex.videoUrl && h(Icon, { d: icons.video, size: 16, style: { color: 'var(--text-muted)', flexShrink: 0 } })
     ),
 
-    showVideo && ex.videoUrl && h('div', { className: 'video-panel' },
-      embed
+    open && h('div', { className: 'ex-row-more' },
+      ex.notes && h('p', { className: 'exercise-notes' }, ex.notes),
+      ex.videoUrl && (embed
         ? h('div', { className: 'video-wrapper' },
-            h('iframe', { src: embed, allow: 'autoplay', allowFullScreen: true, title: ex.name })
-          )
-        : h('p', { style: { fontSize: '13px', color: 'var(--text-muted)' } }, 'Anteprima non disponibile.'),
-      h('a', {
-        href: ex.videoUrl, target: '_blank', rel: 'noreferrer',
-        className: 'video-link',
-        style: { color: accent.dot },
-      },
-        h(Icon, { d: icons.play, size: 13 }),
-        'Apri video in nuova scheda'
+            h('iframe', { src: embed, allow: 'autoplay', allowFullScreen: true, title: ex.name }))
+        : null),
+      ex.videoUrl && h('a', { href: ex.videoUrl, target: '_blank', rel: 'noreferrer', className: 'video-link', style: { color: accent.dot } },
+        h(Icon, { d: icons.play, size: 13 }), 'Apri il video'),
+      h('div', { className: 'ex-row-actions' },
+        h('button', { className: 'btn-ghost', onClick: onEdit }, h(Icon, { d: icons.pencil, size: 14 }), ' Modifica'),
+        h('button', { className: 'btn-ghost danger', onClick: onRemove }, h(Icon, { d: icons.trash, size: 14 }), ' Elimina')
+      )
+    )
+  );
+}
+
+/* ============================================================
+   ALLENAMENTO GUIDATO — un esercizio alla volta
+   ============================================================ */
+function Allenamento({ activity, exercises, accent, onDone, onExit }) {
+  // Ordine fissato all'inizio: i dati si rileggono per id dalla prop aggiornata
+  const [allIds] = useState(() => exercises.map(e => e.id));
+  const [order, setOrder] = useState(allIds);
+  const [idx, setIdx] = useState(0);
+  const [skipped, setSkipped] = useState([]);
+
+  const byId = (id) => exercises.find(e => e.id === id);
+  const total = order.length;
+  const finished = idx >= total;
+  const ex = finished ? null : byId(order[idx]);
+
+  // Cambio esercizio: si riparte dall'alto
+  useEffect(() => { window.scrollTo(0, 0); }, [idx, order]);
+
+  const next = () => setIdx(i => i + 1);
+  const skip = () => {
+    if (ex) setSkipped(s => s.includes(ex.id) ? s : [...s, ex.id]);
+    next();
+  };
+  const doneAndNext = () => {
+    if (ex && !doneToday(ex)) onDone(ex.id);
+    next();
+  };
+
+  if (finished) {
+    const fatti = allIds.filter(id => doneToday(byId(id))).length;
+    const saltati = skipped.filter(id => byId(id) && !doneToday(byId(id)));
+    const rifai = () => { setOrder(saltati); setSkipped([]); setIdx(0); };
+    return h('div', { className: 'page' },
+      h('div', { className: 'content tr-end' },
+        h('div', { className: 'tr-end-icon', style: { background: accent.dot } },
+          h(Icon, { d: icons.check, size: 32, color: '#fff', strokeWidth: 3 })),
+        h('h2', { className: 'tr-end-title' }, 'Allenamento finito'),
+        h('p', { className: 'tr-end-sub' }, `Fatti oggi ${fatti} di ${allIds.length}`),
+        h('div', { className: 'tr-actions' },
+          saltati.length > 0 && h('button', { className: 'tr-btn tr-btn-sec', onClick: rifai }, 'Rifai i saltati'),
+          h('button', { className: 'tr-btn tr-btn-main', style: { background: accent.dot }, onClick: onExit },
+            `Torna a ${activity.name}`)
+        )
+      )
+    );
+  }
+
+  // Esercizio sparito nel frattempo (eliminato): si passa oltre
+  if (!ex) return h('div', { className: 'page' }, h('div', { className: 'content' },
+    h('button', { className: 'tr-btn tr-btn-sec', onClick: next }, 'Avanti')));
+
+  const done = doneToday(ex);
+  const f = freshness(ex.lastDone);
+  const d = daysSince(ex.lastDone);
+  const last = done ? 'fatto oggi' : (ex.lastDone ? (d === 1 ? '1 giorno fa' : `${d} giorni fa`) : 'mai fatto');
+  const embed = driveEmbed(ex.videoUrl);
+
+  return h('div', { className: 'page' },
+    h('div', { className: 'content tr-wrap' },
+      h('div', { className: 'tr-top' },
+        h('button', { className: 'tr-exit', onClick: onExit },
+          h(Icon, { d: icons.back, size: 18 }), 'Esci'),
+        h('span', { className: 'tr-count' }, `${activity.name} · esercizio ${idx + 1} di ${total}`)
+      ),
+      h('div', { className: 'tr-bar' },
+        h('div', { className: 'tr-bar-fill', style: { width: ((idx + 1) / total * 100) + '%', background: accent.dot } })),
+      h('div', { className: 'tr-card' },
+        h('h2', { className: 'tr-name' }, ex.name),
+        h('p', { className: 'tr-last', style: { color: done ? f.c : undefined } }, `ultima volta: ${last}`),
+        ex.videoUrl && (embed
+          ? h('div', { className: 'video-wrapper' },
+              h('iframe', { src: embed, allow: 'autoplay; fullscreen', allowFullScreen: true, title: ex.name }))
+          : h('a', { href: ex.videoUrl, target: '_blank', rel: 'noreferrer', className: 'video-link', style: { color: accent.dot } },
+              h(Icon, { d: icons.play, size: 13 }), 'Apri il video')),
+        ex.notes && h('p', { className: 'tr-notes' }, ex.notes)
+      ),
+      h(Timer, { key: ex.id, accent: accent.dot, onSaveTime: (m) => showToast(`Tempo: ${m} min`) }),
+      h('div', { className: 'tr-actions' },
+        h('button', { className: 'tr-btn tr-btn-sec', onClick: skip }, 'Salta'),
+        h('button', { className: 'tr-btn tr-btn-main', style: { background: accent.dot },
+          onClick: done ? next : doneAndNext }, done ? 'Avanti' : 'Fatto, avanti')
       )
     )
   );
