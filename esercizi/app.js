@@ -561,8 +561,13 @@ function appActivity(id) {
    attesa» che l'app applica alla prossima apertura (vedi applyPendingTicks in
    ../app.js). Le schede nate solo qui (cust_ex_) non hanno un'attivita' nell'app. */
 function addPendingTick(actId) {
-  const a = actId && appActivity(actId);
-  if (!a || a.hidden) return false;  // in Oggi non c'e': niente spunta (ne' messaggio)
+  if (!actId || actId.startsWith('cust_ex_')) return false;  // schede nate qui: nessuna attivita' nell'app
+  let hasAreas = false;
+  try { hasAreas = Array.isArray(JSON.parse(localStorage.getItem('cdfAreas_v1') || 'null')); } catch {}
+  // Con l'elenco dell'app: nascoste o sconosciute non vanno in Oggi. Senza elenco
+  // (app mai aperta qui) la spunta si lascia lo stesso: decide l'app all'apertura.
+  const a = appActivity(actId);
+  if (hasAreas && (!a || a.hidden)) return false;
   try {
     const date = todayISO();
     // Le attivita' che Oggi mostra oggi (le scrive l'app). Se l'elenco e' di un
