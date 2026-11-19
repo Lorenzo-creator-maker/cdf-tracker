@@ -1,5 +1,5 @@
 "use strict";
-const APP_VERSION = "1795090000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
+const APP_VERSION = "1795100000";  // sostituito col timestamp ad ogni pubblicazione (auto-aggiornamento)
 
 /* ===================== Tema (dark / light) ===================== */
 const THEME_KEY = "cdfTheme";
@@ -594,7 +594,11 @@ async function syncExercisesIndex(){
       const remoteEx = await res.json();
       if(remoteEx && typeof remoteEx === "object"){
         const clean = stripMeta(remoteEx);
-        localStorage.setItem("cdf_exercises_v1", JSON.stringify(clean));
+        // Unire, non sovrascrivere: la copia locale puo' avere spunte della
+        // Libreria non ancora inviate al cloud (stessa regola della Libreria).
+        let local = {};
+        try{ local = JSON.parse(localStorage.getItem("cdf_exercises_v1") || "{}") || {}; }catch(e){}
+        localStorage.setItem("cdf_exercises_v1", JSON.stringify(window.exMergeStores(local, clean)));
         render();
       }
     }
@@ -2121,7 +2125,12 @@ function writeAreasForLibrary(){
       const lbl = sectionLabel(sec);
       return {
         id: sec.id, name: lbl.name, emoji: lbl.emoji || "", color: getSectionColor(sec),
-        activities: orderedActivities(sec, false).map(function(a){ return { id: a.id, name: actLabel(a.id) }; })
+        // Anche le nascoste, segnate: la Libreria non le mostra ma sa che sono dell'app.
+        activities: orderedActivities(sec, true).map(function(a){
+          const o = { id: a.id, name: actLabel(a.id) };
+          if(hiddenVal((data._hiddenActivities || {})[a.id])) o.hidden = true;
+          return o;
+        })
       };
     });
     const txt = JSON.stringify(areas);
@@ -2135,9 +2144,12 @@ function applyPendingTicks(){
   try{ localStorage.removeItem(PENDING_TICKS_KEY); }catch(e){}
   if(!Array.isArray(list)) return false;
   const todayKey = fmtKey(new Date());
+  // Solo attività che Oggi mostra: niente righe per id nascosti o eliminati.
+  const visible = {};
+  getSections().forEach(function(sec){ orderedActivities(sec, false).forEach(function(a){ visible[a.id] = true; }); });
   let changed = false;
   list.forEach(function(t){
-    const m = t && typeof t.act === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.date || "");
+    const m = t && typeof t.act === "string" && visible[t.act] && /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.date || "");
     if(!m) return;
     const d = new Date(+m[1], +m[2]-1, +m[3], 12);
     const k = fmtKey(d);

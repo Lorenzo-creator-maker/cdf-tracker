@@ -65,15 +65,7 @@ const tickExercise = (e) => doneToday(e) ? e : {
 const untickExercise = (e) => !doneToday(e) ? e : {
   ...e, count: Math.max(0, (e.count || 0) - 1), lastDone: e.prevDone || null, prevDone: null, updatedAt: Date.now(),
 };
-/* Fra due copie dello stesso esercizio vince quella modificata per ultima; per
-   quelle salvate prima di updatedAt resta la regola di prima (piu' volte fatto,
-   poi data piu' recente). A parita' resta `mine`. */
-function newerExercise(mine, other) {
-  const um = mine.updatedAt || 0, uo = other.updatedAt || 0;
-  if (um || uo) return uo > um ? other : mine;
-  return ((other.count || 0) > (mine.count || 0) ||
-    ((other.count || 0) === (mine.count || 0) && (other.lastDone || '') > (mine.lastDone || ''))) ? other : mine;
-}
+
 const daysSince = (iso) => {
   if (!iso) return null;
   const ms = Date.now() - new Date(iso + 'T00:00:00').getTime();
@@ -234,54 +226,15 @@ async function pushRemote(store) {
   } catch {}
 }
 
-function mergeTomb(a, b) {
-  const out = { ...(a || {}) };
-  for (const [k, v] of Object.entries(b || {})) {
-    out[k] = Math.max(out[k] || 0, v || 0);
-  }
-  return out;
-}
 
-function stripDeletedEx(entry, delEx) {
-  if (!entry || !entry.exercises) return entry;
-  return { ...entry, exercises: entry.exercises.filter(e => !delEx[e.id]) };
-}
 
-function mergeStores(a, b) {
-  const delAct = mergeTomb(a._deleted, b._deleted);
-  const delEx  = mergeTomb(a._deletedEx, b._deletedEx);
-  const out = { _deleted: delAct, _deletedEx: delEx };
 
-  // Una scheda eliminata resta eliminata, a meno che non sia stata riscritta
-  // dopo (updatedAt piu' recente della lapide): ora tutte le attivita' sono in
-  // elenco e una scheda tolta si puo' ricominciare.
-  const alive = (k, x) => x && !(delAct[k] && !((x.updatedAt || 0) > delAct[k]));
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  keys.forEach(k => {
-    if (isMeta(k)) return;
-    const ea = alive(k, a[k]) ? stripDeletedEx(a[k], delEx) : null;
-    const eb = alive(k, b[k]) ? stripDeletedEx(b[k], delEx) : null;
-    if (!ea && !eb) return;
-    if (!ea) { out[k] = eb; return; }
-    if (!eb) { out[k] = ea; return; }
 
-    const byId = {};
-    (ea.exercises || []).forEach(e => { byId[e.id] = e; });
-    (eb.exercises || []).forEach(e => {
-      if (delEx[e.id]) return;
-      const prev = byId[e.id];
-      byId[e.id] = prev ? newerExercise(prev, e) : e;
-    });
 
-    out[k] = {
-      name: eb.name || ea.name,
-      color: eb.color || ea.color,
-      exercises: Object.values(byId),
-      updatedAt: Math.max(ea.updatedAt || 0, eb.updatedAt || 0) || undefined,
-    };
-  });
-  return out;
-}
+
+/* L'unione fra copie (locale, cloud) sta in ../shared.js, cosi' la usa anche
+   l'app principale quando aggiorna gli esercizi locali (19/11/2026). */
+const { exMergeStores: mergeStores, exNewerExercise: newerExercise } = window;
 
 /* Deep link #act=..&name=..&color=.. */
 function parseHash() {
@@ -405,6 +358,9 @@ function App() {
 
   const [synced, setSynced] = useState(!!getPantryId());
   const pushTimer = useRef(null);
+  // Ultimo stato salvato: il salvataggio ritardato unisce il cloud a questo, non
+  // allo stato di quando e' partito (rimetteva in pagina spunte vecchie).
+  const storeRef = useRef(null);
 
   /* Caricamento iniziale + pulizia automatica schede vuote */
   useEffect(() => {
@@ -417,6 +373,7 @@ function App() {
       localStore.set(cleaned);
       raw = cleaned;
     }
+    storeRef.current = raw;
     setStore(raw);
 
     if (seed) {
@@ -433,13 +390,13 @@ function App() {
     (async () => {
       const remote = await pullRemote();
       if (remote && remote !== 'ERR') {
-        setStore(prev => {
-          let merged = mergeStores(prev || {}, remote);
-          const cl = cleanEmptyActivities(merged);
-          merged = cl.cleaned;
-          localStore.set(merged);
-          return merged;
-        });
+        const merged = cleanEmptyActivities(mergeStores(storeRef.current || raw, remote)).cleaned;
+        storeRef.current = merged;
+        localStore.set(merged);
+        setStore(merged);
+        // Modifiche rimaste solo su questo dispositivo (pagina lasciata prima
+        // dell'invio, o fatte senza rete): si mandano adesso.
+        if (JSON.stringify(merged) !== JSON.stringify(mergeStores({}, remote))) pushRemote(merged);
       }
       setSynced(!!getPantryId());
     })();
@@ -469,13 +426,16 @@ function App() {
   /* Salvataggio con debounce */
   const persist = useCallback((nextStore) => {
     nextStore._updatedAt = Date.now();
+    storeRef.current = nextStore;
     localStore.set(nextStore);
     setStore(nextStore);
     if (!getPantryId()) return;
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(async () => {
       const remote = await pullRemote();
-      const toSave = (remote && remote !== 'ERR') ? mergeStores(nextStore, remote) : nextStore;
+      const cur = storeRef.current || nextStore;
+      const toSave = (remote && remote !== 'ERR') ? mergeStores(cur, remote) : cur;
+      storeRef.current = toSave;
       localStore.set(toSave);
       setStore(toSave);
       pushRemote(toSave);
@@ -487,9 +447,12 @@ function App() {
   }
 
   // Risoluzione activity aperta (può essere una scheda nello store o una bozza transitoria)
-  const open = openId
+  const found = openId
     ? (store[openId] ? { id: openId, ...store[openId] } : (draftSeed && draftSeed.id === openId ? { ...draftSeed, exercises: [] } : null))
     : null;
+  // Nome e colore come li mostra ora l'app (rinomine e colori d'area cambiati).
+  const label = found && appActivity(found.id);
+  const open = label ? { ...found, name: label.name, color: label.color } : found;
 
   const updateActivity = (updated) => {
     const ns = { ...store };
@@ -581,11 +544,21 @@ function getAreas() {
     activities: getCdfActivities().map(x => ({ id: x.id, name: x.name })) }];
 }
 
+/* L'attivita' dell'app con questo id ({ name, color, hidden }), o null. */
+function appActivity(id) {
+  for (const area of getAreas()) {
+    const a = (area.activities || []).find(x => x.id === id);
+    if (a) return { name: a.name, color: area.color, hidden: !!a.hidden };
+  }
+  return null;
+}
+
 /* Finiti tutti gli esercizi di un'attivita', la Libreria lascia una «spunta in
    attesa» che l'app applica alla prossima apertura (vedi applyPendingTicks in
    ../app.js). Le schede nate solo qui (cust_ex_) non hanno un'attivita' nell'app. */
 function addPendingTick(actId) {
-  if (!actId || actId.startsWith('cust_ex_')) return false;
+  const a = actId && appActivity(actId);
+  if (!a || a.hidden) return false;  // in Oggi non c'e': niente spunta (ne' messaggio)
   try {
     const date = todayISO();
     let list = JSON.parse(localStorage.getItem('cdfPendingTicks') || '[]');
@@ -613,10 +586,10 @@ function Home({ store, synced, onOpen, searchQuery, setSearchQuery, isDark, togg
   const listed = new Set();
   const groups = areas.map(area => ({
     area,
-    rows: (area.activities || []).map(a => {
-      listed.add(a.id);
-      return { id: a.id, name: a.name, color: area.color, exs: (store[a.id] && store[a.id].exercises) || [] };
-    }),
+    rows: (area.activities || []).filter(a => {
+      listed.add(a.id);          // le nascoste non si mostrano, ma non finiscono in «Altre schede»
+      return !a.hidden;
+    }).map(a => ({ id: a.id, name: a.name, color: area.color, exs: (store[a.id] && store[a.id].exercises) || [] })),
   }));
   // Schede della Libreria che non sono (piu') attivita' dell'app: restano visibili.
   const extra = Object.keys(store)
@@ -786,6 +759,7 @@ function Board({ activity, sortMode, setSortMode, onBack, onChange, onRemoveExer
       exercises: sorted,
       accent: c,
       onDone: markDone,
+      onSaveTime: saveTimeForActivity,
       onExit: () => setTraining(false),
     });
   }
@@ -932,7 +906,7 @@ function ExerciseRow({ ex, accent, open, onToggleOpen, onToggleDone, onEdit, onR
       h('button', { className: 'ex-row-info', onClick: onToggleOpen, 'aria-expanded': open ? 'true' : 'false' },
         h('span', { className: 'ex-row-name' }, ex.name),
         h('span', { className: 'ex-row-meta' },
-          h('span', { style: { color: done ? f.c : (daysSince(ex.lastDone) > 7 ? 'var(--fresh-red)' : undefined) } }, when),
+          h('span', { style: { color: f.c } }, when),
           ` · ${ex.count || 0}× fatto`,
           (typeof ex.priority === 'number') ? ` · priorità ${ex.priority}` : '',
           avgTime(ex) ? ` · ~${avgTime(ex)} min` : ''
@@ -960,7 +934,7 @@ function ExerciseRow({ ex, accent, open, onToggleOpen, onToggleDone, onEdit, onR
 /* ============================================================
    ALLENAMENTO GUIDATO — un esercizio alla volta
    ============================================================ */
-function Allenamento({ activity, exercises, accent, onDone, onExit }) {
+function Allenamento({ activity, exercises, accent, onDone, onSaveTime, onExit }) {
   // Ordine fissato all'inizio: i dati si rileggono per id dalla prop aggiornata
   const [allIds] = useState(() => exercises.map(e => e.id));
   const [order, setOrder] = useState(allIds);
@@ -1022,7 +996,7 @@ function Allenamento({ activity, exercises, accent, onDone, onExit }) {
         h('span', { className: 'tr-count' }, `${activity.name} · esercizio ${idx + 1} di ${total}`)
       ),
       h('div', { className: 'tr-bar' },
-        h('div', { className: 'tr-bar-fill', style: { width: ((idx + 1) / total * 100) + '%', background: accent.dot } })),
+        h('div', { className: 'tr-bar-fill', style: { width: (idx / total * 100) + '%', background: accent.dot } })),
       h('div', { className: 'tr-card' },
         h('h2', { className: 'tr-name' }, ex.name),
         h('p', { className: 'tr-last', style: { color: done ? f.c : undefined } }, `ultima volta: ${last}`),
@@ -1033,7 +1007,7 @@ function Allenamento({ activity, exercises, accent, onDone, onExit }) {
               h(Icon, { d: icons.play, size: 13 }), 'Apri il video')),
         ex.notes && h('p', { className: 'tr-notes' }, ex.notes)
       ),
-      h(Timer, { key: ex.id, accent: accent.dot, onSaveTime: (m) => showToast(`Tempo: ${m} min`) }),
+      h(Timer, { key: ex.id, accent: accent.dot, onSaveTime }),
       h('div', { className: 'tr-actions' },
         h('button', { className: 'tr-btn tr-btn-sec', onClick: skip }, 'Salta'),
         h('button', { className: 'tr-btn tr-btn-main', style: { background: accent.dot },
