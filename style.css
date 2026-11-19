@@ -160,13 +160,6 @@ tbody td.rowpct{font-size:11px;font-weight:800;padding-right:10px;width:34px;}
 .focuschip:active{transform:scale(.94);}
 .thf-pct{font-weight:800;font-size:12px;}
 
-/* ===================== Onboarding ===================== */
-.welcome-card{display:flex;align-items:flex-start;gap:12px;background:var(--card);border-radius:16px;
-  box-shadow:var(--shadow);border:1px solid var(--line);padding:14px 16px;margin-bottom:12px;}
-.welcome-card .wc-emoji{font-size:26px;line-height:1;flex:0 0 auto;}
-.welcome-card div{font-size:13px;line-height:1.5;color:var(--ink);}
-.welcome-card b{font-weight:800;}
-
 /* ===================== Feedback (check, toast, confetti) ===================== */
 @keyframes check-pop{0%{transform:scale(.6);}55%{transform:scale(1.2);}100%{transform:scale(1);}}
 .trcheck.pop{animation:check-pop .34s ease;}

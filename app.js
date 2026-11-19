@@ -1027,16 +1027,8 @@ function renderToday(){
       '<div class="th-frac">'+totDone+' / '+totTot+' fatte</div></div></div>'+
       '<div class="th-bar"><i style="width:'+(ratio*100)+'%;background:'+gradColor(ratio)+'"></i></div></div>';
 
-  // Benvenuto al primo avvio
-  let welcome='';
-  if(firstTime){
-    welcome = '<div class="welcome-card"><div class="wc-emoji">👋</div>'+
-      '<div><b>Benvenuto in ATTIVITA!</b><br>'+
-      'Tocca un’attività per segnarla come fatta. Percentuali, serie e grafici si costruiscono da soli mentre vai avanti.</div></div>';
-  }
-
   if(totTot===0){
-    document.getElementById("todayView").innerHTML = welcome + daynav + hero +
+    document.getElementById("todayView").innerHTML = daynav + hero +
       (isActualToday
         ? '<div class="today-empty">🌙 Niente in programma oggi.<br>Goditi la pausa, oppure aggiungi attività da ⚙️.</div>'
         : '<div class="today-empty">🌙 Niente in programma in questo giorno.</div>');
@@ -1091,7 +1083,7 @@ function renderToday(){
       note = '';
     }
   }
-  document.getElementById("todayView").innerHTML = welcome + daynav + hero + focus + body + note;
+  document.getElementById("todayView").innerHTML = daynav + hero + focus + body + note;
 }
 
 /* ===================== Vista settimana ===================== */
